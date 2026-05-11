@@ -1,4 +1,4 @@
-# 企業資料ナレッジAIチャットシステム (Corporate Doc AI)
+# TANK
 
 社内に蓄積された多様なドキュメント（PDF, Word, Excel, テキスト）を統合的に解析し、Gemini 2.5 Flashを用いて高精度なRAG（検索拡張生成）チャットを提供するシステムです。
 

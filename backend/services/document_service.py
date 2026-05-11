@@ -91,6 +91,7 @@ def analyze_document(document_id: str, db: Session):
         print(f"DEBUG: Extracted {len(chunks)} chunks of text.")
         
         if chunks:
+            print(f"DEBUG: Generating embeddings for {len(chunks)} chunks...")
             # Generate embeddings in batches
             batch_size = 100
             for i in range(0, len(chunks), batch_size):
@@ -98,6 +99,7 @@ def analyze_document(document_id: str, db: Session):
                 embeddings = get_embeddings_batch(batch_slice)
                 
                 if embeddings:
+                    print(f"DEBUG: Saving batch {i//batch_size + 1} to database...")
                     for j, (text, emb) in enumerate(zip(batch_slice, embeddings)):
                         chunk = models.DocumentChunk(
                             document_id=doc.id,

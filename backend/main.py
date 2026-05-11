@@ -12,7 +12,7 @@ from services.document_service import analyze_document
 from services.storage_service import storage_service
 from services.ai_service import get_embedding, generate_answer, generate_standalone_query
 
-app = FastAPI(title="Corporate Doc AI MVP")
+app = FastAPI(title="TANK")
 
 # CORS
 app.add_middleware(
@@ -35,7 +35,7 @@ def startup():
 
 @app.get("/")
 def read_root():
-    return {"message": "Welcome to Corporate Doc AI MVP API"}
+    return {"message": "Welcome to TANK API"}
 
 # Placeholder for Demo User
 DEMO_USER_ID = "00000000-0000-0000-0000-000000000001"

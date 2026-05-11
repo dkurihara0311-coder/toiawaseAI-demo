@@ -90,7 +90,9 @@ export default function Dashboard() {
       dragCounter.current = 0;
       
       if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
-        uploadFile(e.dataTransfer.files[0]);
+        Array.from(e.dataTransfer.files).forEach(file => {
+          uploadFile(file);
+        });
       }
     };
 
@@ -110,6 +112,16 @@ export default function Dashboard() {
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  useEffect(() => {
+    const isProcessing = docs.some(doc => doc.status === 'processing' || doc.status === 'uploaded');
+    if (isProcessing) {
+      const interval = setInterval(() => {
+        fetchDocs();
+      }, 3000);
+      return () => clearInterval(interval);
+    }
+  }, [docs]);
 
   // --- Actions ---
   const fetchDocs = async () => {
@@ -166,8 +178,10 @@ export default function Dashboard() {
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
-    if (e.dataTransfer.files?.[0]) {
-      uploadFile(e.dataTransfer.files[0]);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      Array.from(e.dataTransfer.files).forEach(file => {
+        uploadFile(file);
+      });
     }
   };
 
@@ -236,7 +250,7 @@ export default function Dashboard() {
       <aside className="w-80 flex-shrink-0 flex flex-col border-r border-white/10 bg-black/40 backdrop-blur-xl">
         <div className="p-6">
           <h1 className="text-xl font-bold bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">
-            Corporate Doc AI
+            TANK
           </h1>
         </div>
 
