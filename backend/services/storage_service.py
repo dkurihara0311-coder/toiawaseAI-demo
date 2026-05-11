@@ -3,12 +3,17 @@ from supabase import create_client, Client
 
 class StorageService:
     def __init__(self):
-        url = os.getenv("SUPABASE_URL")
-        key = os.getenv("SUPABASE_KEY")
+        url = os.getenv("SUPABASE_URL", "").strip().strip('"')
+        key = os.getenv("SUPABASE_KEY", "").strip().strip('"')
         if url and key:
-            self.supabase: Client = create_client(url, key)
-            self.bucket_name = "documents"
+            try:
+                self.supabase: Client = create_client(url, key)
+                self.bucket_name = "documents"
+            except Exception as e:
+                print(f"CRITICAL ERROR: Supabase Client initialization failed: {e}")
+                self.supabase = None
         else:
+            print("WARNING: Supabase URL or KEY is missing.")
             self.supabase = None
 
     def upload_file(self, file_path: str, remote_path: str):
