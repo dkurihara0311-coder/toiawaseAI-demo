@@ -37,7 +37,7 @@ def generate_standalone_query(message: str, history: list):
     if not history:
         return message
     
-    model = genai.GenerativeModel('models/gemini-1.5-flash')
+    model = genai.GenerativeModel('models/gemini-2.5-flash')
     history_text = "\n".join([f"{h['role']}: {h['content']}" for h in history])
     prompt = f"""
 以下の対話履歴を踏まえて、ユーザーの最新のメッセージを、資料検索に最適な「単独の検索クエリ」に変換してください。
@@ -60,7 +60,7 @@ def generate_standalone_query(message: str, history: list):
 
 def generate_answer(question: str, context: str, history: list = None):
     """Generate answer based on context and history using Gemini."""
-    model = genai.GenerativeModel('models/gemini-1.5-flash')
+    model = genai.GenerativeModel('models/gemini-2.5-flash')
     
     history_section = ""
     if history:
