@@ -123,9 +123,9 @@ def extract_doc_metadata(text: str):
 
 def generate_standalone_query(message: str, history: list):
     model = get_model()
-    # 履歴を簡略化
-    h_text = " ".join([h['content'] for h in history[-2:]]) # 直近2件のみ
-    prompt = f"Query: {h_text} {message}"
+    # 履歴を10件参照して適切な検索クエリを生成
+    h_text = " ".join([h['content'] for h in history[-10:]])
+    prompt = f"Context: {h_text}\nQuestion: {message}\nProduce a concise search query."
     try:
         response = safe_generate_with_retry(model, prompt)
         return response.text.strip() if response else message
@@ -134,17 +134,16 @@ def generate_standalone_query(message: str, history: list):
 
 def generate_answer(question: str, context: str, history: list = None):
     model = get_model()
-    # 履歴を判断材料（文脈）として含める
-    h_text = "\n".join([f"{h['role']}: {h['content']}" for h in (history or [])[-3:]]) # 直近3件
+    # 履歴を直近15件まで保持して判断材料にする
+    h_text = "\n".join([f"{h['role']}: {h['content']}" for h in (history or [])[-15:]])
     prompt = f"""
-命令:資料と会話履歴に基づき、最新の問いにのみ答えよ。
-履歴は文脈把握のためのみに使い、過去の回答内容を不必要に繰り返さないこと。
-資料にないことは「不明」とせよ。
+命令:資料と過去の経緯に基づき、最新の問いに答えよ。
+過去の回答を丸ごと繰り返すのではなく、文脈を汲み取った新しい回答を行え。
 
 【資料】
 {context}
 
-【会話履歴】
+【具体的な会話の経緯】
 {h_text}
 
 【最新の問い】
