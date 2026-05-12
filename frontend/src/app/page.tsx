@@ -27,6 +27,8 @@ interface Document {
   status: string;
   created_at: string;
   customer_name?: string;
+  summary?: string;
+  tags?: string;
 }
 
 interface Message {
@@ -407,9 +409,21 @@ export default function Dashboard() {
               
               <div className="space-y-4 pt-4 border-t border-white/5">
                 <div>
-                  <div className="text-[10px] text-gray-500 uppercase font-bold mb-1">取引先名</div>
+                  <div className="text-[10px] text-gray-500 uppercase font-bold mb-1">関連組織 / 名称</div>
                   <div className="text-sm font-medium">{selectedDoc.customer_name || '未抽出'}</div>
                 </div>
+                {selectedDoc.tags && (
+                  <div>
+                    <div className="text-[10px] text-gray-500 uppercase font-bold mb-2">属性タグ</div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {selectedDoc.tags.split(',').map((tag, i) => (
+                        <span key={i} className="px-2 py-0.5 bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 rounded-md text-[10px]">
+                          #{tag.trim()}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <div>
                   <div className="text-[10px] text-gray-500 uppercase font-bold mb-1">アップロード日時</div>
                   <div className="text-sm font-medium">{new Date(selectedDoc.created_at).toLocaleString()}</div>
@@ -418,11 +432,10 @@ export default function Dashboard() {
             </div>
 
             <div className="flex-1 glass-panel p-6 font-mono text-[11px] leading-relaxed overflow-y-auto">
-              <div className="text-indigo-400 mb-2">// Markdown Preview (MVP Simplified)</div>
+              <div className="text-indigo-400 mb-2">// 資料の概要</div>
               {selectedDoc.status === 'completed' ? (
-                <div className="text-gray-400">
-                  チャンク化済み。チャット検索可能な状態です。<br/>
-                  (詳細なMarkdownプレビューは次期アップデートで対応予定)
+                <div className="text-gray-300 leading-relaxed italic">
+                  {selectedDoc.summary || "概要は生成されませんでした。"}
                 </div>
               ) : (
                 <div className="flex items-center gap-2 text-gray-500">

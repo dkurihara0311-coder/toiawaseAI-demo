@@ -1,5 +1,6 @@
 import os
 import google.generativeai as genai
+import json
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -91,3 +92,47 @@ def generate_answer(question: str, context: str, history: list = None):
     except Exception as e:
         print(f"Error generating answer: {e}")
         return "申し訳ありません。回答の生成中にエラーが発生しました。"
+
+def extract_doc_metadata(text: str):
+    """Extract metadata (category, summary, tags, customer) from document text using Gemini."""
+    model = genai.GenerativeModel('models/gemini-2.5-flash')
+    
+    # 冒頭部分を重点的に、最大約10000文字程度にトリミングして解析（全件送ると長い場合に備え）
+    sample_text = text[:10000]
+    
+    prompt = f"""
+以下の資料テキストを分析し、指定されたフォーマットのJSONで情報を抽出してください。
+余計な解説や、```json などのマーカーは一切不要です。純粋なJSONのみを出力してください。
+
+【抽出項目】
+1. document_type: 資料の種類（例：見積書、社内規定、議事録、マニュアル、README等）。
+2. customer_name: 関連する主な会社名や組織名。明確に存在しない場合は空文字にしてください。
+3. summary: 資料の全体像がわかる3行程度の短い概要。
+4. tags: 資料の重要キーワードを3〜5個（カンマ区切り）。
+
+【資料テキスト冒頭】
+---
+{sample_text}
+---
+
+【出力形式】
+{{
+  "document_type": "資料の種類",
+  "customer_name": "会社名/組織名",
+  "summary": "概要文",
+  "tags": "キーワード1,キーワード2,キーワード3"
+}}
+"""
+    try:
+        response = model.generate_content(prompt)
+        # 不要な文字（もしあれば）を削ぎ落としてパース
+        clean_text = response.text.strip().replace("```json", "").replace("```", "")
+        return json.loads(clean_text)
+    except Exception as e:
+        print(f"Error extracting metadata: {e}")
+        return {
+            "document_type": "未分類",
+            "customer_name": "",
+            "summary": "解析中にエラーが発生したため、概要を生成できませんでした。",
+            "tags": "エラー"
+        }

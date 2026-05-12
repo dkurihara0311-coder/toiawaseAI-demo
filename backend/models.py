@@ -24,6 +24,8 @@ class Document(Base):
     # Metadata (Simplified for MVP, extensible later)
     document_type = Column(String)
     customer_name = Column(String)
+    summary = Column(Text)
+    tags = Column(String)
 
 class DocumentChunk(Base):
     __tablename__ = "document_chunks"

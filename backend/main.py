@@ -49,11 +49,35 @@ def setup_demo(db: Session = Depends(get_db)):
 
 # Background analysis wrapper to get fresh DB session
 def analyze_bg(document_id: str):
+    # 1. Start Analysis
     db = SessionLocal()
     try:
         analyze_document(document_id, db)
-    finally:
+    except Exception as e:
+        print(f"CRITICAL ERROR in background analysis: {e}")
+        # Analysis session might be broken, close and use a fresh one for status update
+        db.rollback()
         db.close()
+        
+        # 2. Forced status update in a fresh session
+        db_fail = SessionLocal()
+        try:
+            doc = db_fail.query(models.Document).filter(models.Document.id == document_id).first()
+            if doc:
+                doc.status = "failed"
+                db_fail.commit()
+                print(f"Status for {document_id} set to FAILED.")
+        except Exception as db_err:
+            print(f"Could not set status to failed: {db_err}")
+        finally:
+            db_fail.close()
+        return
+    finally:
+        # Check if session is still open (might have been closed in except)
+        try:
+            db.close()
+        except:
+            pass
 
 @app.post("/api/upload")
 async def upload_file(

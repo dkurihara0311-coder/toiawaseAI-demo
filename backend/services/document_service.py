@@ -1,7 +1,7 @@
 import os
 from sqlalchemy.orm import Session
 import models
-from services.ai_service import get_embeddings_batch
+from services.ai_service import get_embeddings_batch, extract_doc_metadata
 from services.storage_service import storage_service
 
 # Standard libraries for various formats
@@ -19,17 +19,25 @@ def analyze_document(document_id: str, db: Session):
         doc.status = "processing"
         db.commit()
 
-        # In cloud env, we may need to download the file from Supabase
+        # In local dev, the file should already be in /app/uploads/ (shared via volume or direct write)
+        # Check local path first
+        local_upload_path = f"/app/uploads/{doc.id}.{doc.file_name.split('.')[-1].lower()}"
         file_path = f"/tmp/{doc.storage_path}"
-        if not os.path.exists(file_path):
+
+        if os.path.exists(local_upload_path):
+            print(f"DEBUG: Using local file found at {local_upload_path}")
+            file_path = local_upload_path
+        elif not os.path.exists(file_path):
             print(f"DEBUG: Downloading {doc.storage_path} from Supabase...")
             os.makedirs("/tmp", exist_ok=True)
             success = storage_service.download_file(doc.storage_path, file_path)
             if not success:
                 raise Exception("Failed to download file from storage")
 
+        # ... (rest of extraction logic remains same)
         file_ext = doc.file_name.split(".")[-1].lower()
         chunks = []
+        # ...
 
         print(f"DEBUG: Extracting text from {doc.file_name} (format: {file_ext})...")
 
@@ -108,12 +116,25 @@ def analyze_document(document_id: str, db: Session):
                             embedding=emb
                         )
                         db.add(chunk)
+                        db.add(chunk)
             db.commit()
         
+        # 4. Extract Metadata (Summary, Tags, etc.)
+        if chunks:
+            full_text_sample = "\n".join(chunks)
+            print(f"DEBUG: Extracting metadata for {doc.file_name}...")
+            metadata = extract_doc_metadata(full_text_sample)
+            
+            doc.document_type = metadata.get("document_type", "未分類")
+            doc.customer_name = metadata.get("customer_name", "")
+            doc.summary = metadata.get("summary", "")
+            doc.tags = metadata.get("tags", "")
+            db.commit()
+
         doc.status = "completed"
         db.commit()
         print(f"DEBUG: Analysis COMPLETED for {doc.file_name}")
     except Exception as e:
         print(f"Error analyzing document {document_id}: {e}")
-        doc.status = "failed"
-        db.commit()
+        db.rollback()
+        raise e
