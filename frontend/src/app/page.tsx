@@ -262,10 +262,13 @@ export default function Dashboard() {
       
       {/* Sidebar: Document List */}
       <aside className="w-80 flex-shrink-0 flex flex-col border-r border-white/10 bg-black/40 backdrop-blur-xl">
-        <div className="p-6">
-          <h1 className="text-xl font-bold bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">
-            TANK
-          </h1>
+        <div className="p-8 flex justify-center">
+          <img 
+            src="/logo.png" 
+            alt="TANK Logo" 
+            className="w-48 h-auto object-contain brightness-110 contrast-125"
+            style={{ mixBlendMode: 'screen' }} 
+          />
         </div>
 
         <div className="px-4 mb-4">
@@ -325,12 +328,25 @@ export default function Dashboard() {
         {/* Chat Messages */}
         <div className="flex-1 overflow-y-auto p-8 space-y-6">
           {messages.length === 0 && (
-            <div className="h-full flex flex-col items-center justify-center text-center space-y-4 opacity-40">
-              <div className="w-16 h-16 rounded-3xl glass-panel flex items-center justify-center mb-4">
-                <Plus className="w-8 h-8 text-indigo-400" />
+            <div className="h-full flex flex-col items-center justify-center text-center space-y-12 animate-in fade-in zoom-in duration-1000">
+              <div className="relative group">
+                <div className="absolute -inset-10 bg-indigo-500/10 rounded-full blur-3xl group-hover:bg-indigo-500/20 transition-all duration-700"></div>
+                <img 
+                  src="/logo.png" 
+                  alt="TANK" 
+                  className="relative w-96 h-auto object-contain opacity-80 group-hover:opacity-100 group-hover:scale-105 transition-all duration-700"
+                  style={{ mixBlendMode: 'screen' }}
+                />
               </div>
-              <h2 className="text-2xl font-bold">どのようなお手伝いをしましょうか？</h2>
-              <p className="max-w-md text-sm">アップロードした資料の内容について質問してください。<br/>AIが根拠付きで回答します。</p>
+              <div className="space-y-4">
+                <h2 className="text-4xl font-bold tracking-tight bg-gradient-to-b from-white via-white to-gray-500 bg-clip-text text-transparent italic">
+                  どのようなお手伝いをしましょうか？
+                </h2>
+                <p className="max-w-md text-gray-400 text-base leading-relaxed mx-auto font-light">
+                  アップロードされた資料の内容に基づき、<br/>
+                  AIが瞬時に関連情報を特定・回答します。
+                </p>
+              </div>
             </div>
           )}
           {messages.map((msg, idx) => (
