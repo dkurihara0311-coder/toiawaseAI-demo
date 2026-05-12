@@ -134,8 +134,22 @@ def generate_standalone_query(message: str, history: list):
 
 def generate_answer(question: str, context: str, history: list = None):
     model = get_model()
-    # 命令を最短化
-    prompt = f"資料に基づき簡潔に答えよ。資料:\n{context}\n問:{question}"
+    # 履歴を判断材料（文脈）として含める
+    h_text = "\n".join([f"{h['role']}: {h['content']}" for h in (history or [])[-3:]]) # 直近3件
+    prompt = f"""
+命令:資料と会話履歴に基づき、最新の問いにのみ答えよ。
+履歴は文脈把握のためのみに使い、過去の回答内容を不必要に繰り返さないこと。
+資料にないことは「不明」とせよ。
+
+【資料】
+{context}
+
+【会話履歴】
+{h_text}
+
+【最新の問い】
+{question}
+"""
     try:
         response = safe_generate_with_retry(model, prompt)
         return response.text if response else "回答不可。"
