@@ -14,8 +14,8 @@ import {
   PanelRightClose,
   MoreVertical,
   Paperclip,
-  CheckCircle2,
-  Loader2,
+  RefreshCw,
+  X,
   Trash2
 } from "lucide-react";
 import axios from "axios";
@@ -127,15 +127,38 @@ export default function Dashboard() {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  // ポーリング管理（処理中の資料がある場合のみ）
   useEffect(() => {
-    const isProcessing = docs.some(doc => doc.status === 'processing' || doc.status === 'uploaded');
+    const checkProcessing = () => docs.some(doc => doc.status === 'processing' || doc.status === 'uploaded');
+    const isProcessing = checkProcessing();
+    
+    let intervalId: any = null;
+    
     if (isProcessing) {
-      const interval = setInterval(() => {
+      intervalId = setInterval(() => {
         fetchDocs();
       }, 3000);
-      return () => clearInterval(interval);
     }
-  }, [docs]);
+
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [docs.some(doc => doc.status === 'processing' || doc.status === 'uploaded')]);
+
+  // 初期ロード保証（マウント時に1回実行）
+  useEffect(() => {
+    fetchDocs();
+  }, []);
+
+  // 現在選択中の資料がある場合、最新のリスト (docs) から同期する
+  useEffect(() => {
+    if (selectedDoc) {
+      const latestDoc = docs.find(d => d.id === selectedDoc.id);
+      if (latestDoc && JSON.stringify(latestDoc) !== JSON.stringify(selectedDoc)) {
+        setSelectedDoc(latestDoc);
+      }
+    }
+  }, [docs, selectedDoc]);
 
   // --- Actions ---
   const fetchDocs = async () => {
@@ -216,6 +239,31 @@ export default function Dashboard() {
     }
   };
 
+  const downloadAction = async (docId: string, type: 'original' | 'md') => {
+    const endpoint = type === 'original' ? `/api/documents/${docId}/download` : `/api/documents/${docId}/export-md`;
+    try {
+      const response = await axios.get(`${API_URL}${endpoint}`, { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([response.data], { type: response.headers['content-type'] }));
+      const link = document.createElement('a');
+      link.href = url;
+      
+      // 生成するファイル名の決定 (原紙名 + "_要約")
+      let fileName = selectedDoc?.file_name || 'download';
+      if (type === 'md' && selectedDoc) {
+        const baseName = selectedDoc.file_name.replace(/\.[^/.]+$/, "");
+        fileName = `${baseName}_要約.md`;
+      }
+      
+      link.setAttribute('download', fileName);
+      document.body.appendChild(link);
+      link.click();
+      link.parentNode?.removeChild(link);
+    } catch (e: any) {
+      console.error(e);
+      alert("ダウンロードに失敗しました。");
+    }
+  };
+
   const handleSend = async () => {
     const messageContent = input.trim();
     if (!messageContent || isProcessingChat) return;
@@ -287,22 +335,27 @@ export default function Dashboard() {
             <div
               key={doc.id}
               onClick={() => { setSelectedDoc(doc); setShowDocPanel(true); }}
-              className={`w-full flex items-center gap-3 p-3 rounded-lg text-left transition-all hover:bg-white/5 group ${selectedDoc?.id === doc.id ? 'bg-white/10 border-l-2 border-indigo-500' : ''} cursor-pointer`}
+              className={`w-full flex items-center gap-3 p-3 rounded-lg text-left transition-all hover:bg-white/5 group 
+                ${selectedDoc?.id === doc.id ? 'bg-white/10 border-l-2 border-indigo-500' : ''} 
+                ${doc.status === 'failed' ? 'bg-red-500/5' : ''} 
+                cursor-pointer`}
             >
-              <FileText className={`w-5 h-5 flex-shrink-0 ${doc.status === 'completed' ? 'text-green-400' : 'text-gray-500'}`} />
+              {doc.status === 'completed' ? (
+                <FileText className="w-5 h-5 flex-shrink-0 text-green-500" />
+              ) : doc.status === 'failed' ? (
+                <X className="w-5 h-5 flex-shrink-0 text-red-500 stroke-[3]" />
+              ) : (
+                <RefreshCw className="w-4 h-4 flex-shrink-0 text-gray-500" />
+              )}
               <div className="flex-1 truncate">
-                <div className="text-sm font-medium truncate">{doc.file_name}</div>
-                <div className="text-[10px] text-gray-500">{new Date(doc.created_at).toLocaleDateString()}</div>
+                <div className="text-sm font-medium truncate text-white">
+                  {doc.file_name}
+                </div>
+                <div className="text-[10px] text-gray-500">
+                  {new Date(doc.created_at).toLocaleDateString()}
+                </div>
               </div>
               <div className="flex items-center gap-2">
-                {doc.status === 'processing' && <Loader2 className="w-3 h-3 animate-spin text-indigo-400" />}
-                <button 
-                  onClick={(e: React.MouseEvent) => deleteDoc(doc.id, e)}
-                  className="p-1.5 opacity-0 group-hover:opacity-100 hover:bg-red-500/20 hover:text-red-400 rounded-md transition-all"
-                  title="削除"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
               </div>
             </div>
           ))}
@@ -429,9 +482,26 @@ export default function Dashboard() {
                 <div className="p-3 bg-indigo-500/20 rounded-2xl">
                   <FileText className="w-8 h-8 text-indigo-400" />
                 </div>
-                <div>
-                  <div className="font-bold">{selectedDoc.file_name}</div>
-                  <div className="text-xs text-gray-500 uppercase tracking-widest mt-1">Status: {selectedDoc.status}</div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-bold truncate text-lg" title={selectedDoc.file_name}>{selectedDoc.file_name}</div>
+                  <div className="text-[10px] text-gray-500 uppercase tracking-widest mt-1 font-bold">Status: {selectedDoc.status}</div>
+                  
+                  <div className="flex flex-wrap gap-2 mt-4">
+                    <button 
+                      onClick={() => downloadAction(selectedDoc.id, 'original')}
+                      className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-xs font-bold transition-all active:scale-95 shadow-lg shadow-indigo-500/20"
+                    >
+                      <FileText className="w-4 h-4" />
+                      ダウンロード
+                    </button>
+                    <button 
+                      onClick={() => downloadAction(selectedDoc.id, 'md')}
+                      className="flex items-center gap-1.5 px-3 py-2 bg-purple-600 hover:bg-purple-500 rounded-lg text-xs font-bold transition-all active:scale-95 shadow-lg shadow-purple-500/20"
+                    >
+                      <FileText className="w-4 h-4" />
+                      要約ダウンロード
+                    </button>
+                  </div>
                 </div>
               </div>
               
@@ -459,18 +529,42 @@ export default function Dashboard() {
               </div>
             </div>
 
-            <div className="flex-1 glass-panel p-6 font-mono text-[11px] leading-relaxed overflow-y-auto">
-              <div className="text-indigo-400 mb-2">// 資料の概要</div>
+            <div className="flex-1 glass-panel p-6 font-mono text-[11px] leading-relaxed overflow-y-auto mb-6">
+              <div className="text-indigo-400 mb-2">【資料の概要】</div>
               {selectedDoc.status === 'completed' ? (
-                <div className="text-gray-300 leading-relaxed italic">
-                  {selectedDoc.summary || "概要は生成されませんでした。"}
+                <div className="text-gray-300 leading-relaxed italic whitespace-pre-wrap">
+                  {(() => {
+                    try {
+                      const summaryText = selectedDoc.summary || "";
+                      if (summaryText.startsWith('{') || summaryText.startsWith('[')) {
+                        const data = JSON.parse(summaryText);
+                        return data.brief || summaryText;
+                      }
+                      return summaryText || "概要は生成されませんでした。";
+                    } catch (e) {
+                      return selectedDoc.summary || "概要は生成されませんでした。";
+                    }
+                  })()}
                 </div>
+              ) : selectedDoc.status === 'failed' ? (
+                <div className="text-red-400 italic">解析に失敗しました。ファイル形式を確認して再度アップロードしてください。</div>
               ) : (
                 <div className="flex items-center gap-2 text-gray-500">
-                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <RefreshCw className="w-4 h-4 animate-spin" />
                   解析中...
                 </div>
               )}
+            </div>
+
+            {/* 資料の破棄セクション */}
+            <div className="pt-6 border-t border-red-500/20">
+              <button 
+                onClick={(e: any) => deleteDoc(selectedDoc.id, e)}
+                className="w-full flex items-center justify-center gap-2 p-3 bg-red-600/5 hover:bg-red-600/20 text-red-500 border border-red-500/20 rounded-xl text-xs font-bold transition-all group"
+              >
+                <Trash2 className="w-4 h-4" />
+                この資料を完全に削除する
+              </button>
             </div>
           </div>
         ) : (
@@ -482,10 +576,10 @@ export default function Dashboard() {
 
       {/* Global Processing Loader */}
       {isUploading && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[200]">
           <div className="glass-panel p-8 flex flex-col items-center gap-4">
-            <Loader2 className="w-10 h-10 animate-spin text-indigo-500" />
-            <div className="font-bold">ファイルを処理中...</div>
+            <RefreshCw className="w-10 h-10 animate-spin text-gray-400" />
+            <div className="font-bold">ファイルをアップロード中...</div>
           </div>
         </div>
       )}

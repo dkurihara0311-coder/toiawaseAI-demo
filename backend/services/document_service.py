@@ -1,4 +1,5 @@
 import os
+import json
 from sqlalchemy.orm import Session
 import models
 from services.ai_service import get_embeddings_batch, extract_doc_metadata
@@ -127,7 +128,11 @@ def analyze_document(document_id: str, db: Session):
             
             doc.document_type = metadata.get("document_type", "未分類")
             doc.customer_name = metadata.get("customer_name", "")
-            doc.summary = metadata.get("summary", "")
+            # 保存時はJSON形式で、短い概要と詳細レポートの両方を保持
+            doc.summary = json.dumps({
+                "brief": metadata.get("summary", ""),
+                "detailed": metadata.get("content_report", "")
+            }, ensure_ascii=False)
             doc.tags = metadata.get("tags", "")
             db.commit()
 
