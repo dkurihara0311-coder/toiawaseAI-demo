@@ -51,13 +51,25 @@ export default function Dashboard() {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const dragCounter = useRef(0);
 
-  const API_URL = (typeof process !== "undefined" && process.env?.NEXT_PUBLIC_API_URL) || "http://localhost:8000";
+  const getApiUrl = () => {
+    if (typeof process !== "undefined" && process.env?.NEXT_PUBLIC_API_URL) {
+      return process.env.NEXT_PUBLIC_API_URL;
+    }
+    if (typeof window !== "undefined") {
+      const { hostname, protocol } = window.location;
+      // localhostなら8000、Render等の本番環境なら10000をデフォルトにする
+      const port = hostname === "localhost" ? "8000" : "10000";
+      return `${protocol}//${hostname}:${port}`;
+    }
+    return "http://localhost:8000";
+  };
+
+  const API_URL = getApiUrl();
 
   // --- Effects ---
   useEffect(() => {
     fetchDocs();
-    const API_URL_SAFE = typeof process !== "undefined" ? process.env?.NEXT_PUBLIC_API_URL || "http://localhost:8000" : "http://localhost:8000";
-    axios.post(`${API_URL_SAFE}/api/setup-demo`).catch((e: any) => console.error("Setup error", e));
+    axios.post(`${API_URL}/api/setup-demo`).catch((e: any) => console.error("Setup error", e));
 
     const handleDragEnter = (e: DragEvent) => {
       e.preventDefault();
