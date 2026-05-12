@@ -138,10 +138,13 @@ def chat(request: schemas.ChatRequest, db: Session = Depends(get_db)):
     if not question_embedding:
         raise HTTPException(status_code=500, detail="Failed to generate embedding for the question.")
 
-    # 2. Vector Search (Top 15)
-    results = db.query(models.DocumentChunk).order_by(
+    # 2. Vector Search (Top 8 with relevance threshold)
+    # distance 0.4 equals roughly 0.6 similarity.
+    results = db.query(models.DocumentChunk).filter(
+        models.DocumentChunk.embedding.cosine_distance(question_embedding) < 0.4
+    ).order_by(
         models.DocumentChunk.embedding.cosine_distance(question_embedding)
-    ).limit(15).all()
+    ).limit(8).all()
 
     if not results:
         return {"answer": "該当する情報は、現在閲覧可能な資料上では確認できません。", "references": []}
@@ -159,6 +162,11 @@ def chat(request: schemas.ChatRequest, db: Session = Depends(get_db)):
                 seen_docs.add(doc.id)
 
     context_text = "\n\n---\n\n".join(context_parts)
+    
+    # 4. Generate Final Answer
+    answer = generate_answer(search_query, context_text, [h.dict() for h in request.history])
+    
+    return {"answer": answer, "references": references}
 
 @app.get("/api/documents/{document_id}/download")
 def download_document(document_id: uuid.UUID, db: Session = Depends(get_db)):

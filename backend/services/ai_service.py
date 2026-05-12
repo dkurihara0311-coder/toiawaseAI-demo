@@ -55,15 +55,15 @@ def get_model():
         safety_settings=safety_settings
     )
 
-def safe_generate_with_retry(model, prompt, max_retries=2):
-    """Generate content with Gemini 2.5-flash, retrying briefly on 429."""
+def safe_generate_with_retry(model, prompt, max_retries=4):
+    """Generate content with Gemini 2.5-flash, retrying several times on 429."""
     for attempt in range(max_retries):
         try:
             return model.generate_content(prompt)
         except Exception as e:
             if "429" in str(e):
-                # エコモード導入により負荷は減っているため、待機を短縮
-                wait_time = 10 if attempt == 0 else 20
+                # リトライを重ねるごとに待機時間を少しずつ増やす (10s -> 20s -> 30s)
+                wait_time = (attempt + 1) * 10
                 print(f"DEBUG: Limit 429. Waiting {wait_time}s before retry...")
                 time.sleep(wait_time)
             elif attempt < max_retries - 1:
@@ -123,8 +123,9 @@ def extract_doc_metadata(text: str):
 
 def generate_standalone_query(message: str, history: list):
     model = get_model()
-    history_text = "\n".join([f"{h['role']}: {h['content']}" for h in history])
-    prompt = f"履歴を踏まえた検索クエリを作成してください。履歴:\n{history_text}\n問い:{message}"
+    # 履歴を簡略化
+    h_text = " ".join([h['content'] for h in history[-2:]]) # 直近2件のみ
+    prompt = f"Query: {h_text} {message}"
     try:
         response = safe_generate_with_retry(model, prompt)
         return response.text.strip() if response else message
@@ -133,10 +134,10 @@ def generate_standalone_query(message: str, history: list):
 
 def generate_answer(question: str, context: str, history: list = None):
     model = get_model()
-    history_text = "\n".join([f"{h['role']}: {h['content']}" for h in (history or [])])
-    prompt = f"資料に基づいて答えてください。\n履歴:\n{history_text}\n資料:\n{context}\n問:{question}"
+    # 命令を最短化
+    prompt = f"資料に基づき簡潔に答えよ。資料:\n{context}\n問:{question}"
     try:
         response = safe_generate_with_retry(model, prompt)
-        return response.text if response else "応答を生成できませんでした。"
+        return response.text if response else "回答不可。"
     except:
-        return "エラーが発生しました。"
+        return "混雑中。時間を置いて再試行してください。"
