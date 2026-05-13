@@ -360,6 +360,16 @@ export default function Dashboard() {
             </div>
           ))}
         </div>
+
+        {/* Foot Logo */}
+        <div className="p-8 flex justify-center border-t border-white/5 mt-auto">
+          <img 
+            src="/footlogo.png" 
+            alt="Foot Logo" 
+            className="w-full max-w-xs h-auto object-contain opacity-60 brightness-110 contrast-125" // w-full と max-w-xs (20rem / 320px) を指定
+            style={{ mixBlendMode: 'screen' }} 
+          />
+        </div>
       </aside>
 
       {/* Main Area: Chat */}
@@ -458,7 +468,7 @@ export default function Dashboard() {
             </button>
           </div>
           <div className="mt-3 text-center text-[10px] text-gray-500 uppercase tracking-tighter">
-            AI responses may vary in accuracy. Please verify critical information.
+            YOKOTA ENTERPRISE Co.,Ltd. All Rights Reserved.
           </div>
         </div>
       </main>
