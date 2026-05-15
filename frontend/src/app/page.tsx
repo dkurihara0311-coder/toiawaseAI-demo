@@ -48,6 +48,9 @@ export default function Dashboard() {
   const [showDocPanel, setShowDocPanel] = useState(false);
   const [selectedDoc, setSelectedDoc] = useState<Document | null>(null);
   
+  const [tags, setTags] = useState<string[]>([]);
+  const [selectedTag, setSelectedTag] = useState<string>("");
+  
   const chatEndRef = useRef<HTMLDivElement>(null);
   const dragCounter = useRef(0);
 
@@ -124,6 +127,10 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
+    fetchTags();
+  }, [docs]); // ドキュメント一覧が更新されたらタグ一覧も更新する
+
+  useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
@@ -167,6 +174,15 @@ export default function Dashboard() {
       setDocs(res.data as Document[]);
     } catch (e: any) {
       console.error("Fetch docs error", e);
+    }
+  };
+
+  const fetchTags = async () => {
+    try {
+      const res = await axios.get(`${API_URL}/api/tags`);
+      setTags(res.data as string[]);
+    } catch (e: any) {
+      console.error("Fetch tags error", e);
     }
   };
 
@@ -328,10 +344,34 @@ export default function Dashboard() {
         </div>
 
         <div className="flex-1 overflow-y-auto px-2 space-y-1">
-          <div className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-            資料ライブラリ
+          <div className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider flex justify-between items-center">
+            <span>資料ライブラリ</span>
+            <Search className="w-3 h-3" />
           </div>
-          {docs.map((doc: Document) => (
+
+          <div className="px-4 mb-4">
+            <select
+              value={selectedTag}
+              onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setSelectedTag(e.target.value)}
+              className="w-full p-2 bg-white/5 border border-white/10 rounded-lg text-xs text-gray-300 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all appearance-none cursor-pointer"
+              style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 24 24\' stroke=\'%236366f1\'%3E%3Cpath stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'2\' d=\'org.lucide.ChevronDown\' /%3E%3C/svg%3E")', backgroundPosition: 'right 0.5rem center', backgroundRepeat: 'no-repeat', backgroundSize: '1rem' }}
+            >
+              <option value="" className="bg-[#0a0a20]">すべての属性を表示</option>
+              {tags.map((tag) => (
+                <option key={tag} value={tag} className="bg-[#0a0a20]">
+                  #{tag}
+                </option>
+              ))}
+            </select>
+          </div>
+          {docs
+            .filter((doc: Document) => {
+              if (!selectedTag) return true;
+              if (!doc.tags) return false;
+              const docTagList = doc.tags.split(',').map(t => t.trim());
+              return docTagList.includes(selectedTag);
+            })
+            .map((doc: Document) => (
             <div
               key={doc.id}
               onClick={() => { setSelectedDoc(doc); setShowDocPanel(true); }}

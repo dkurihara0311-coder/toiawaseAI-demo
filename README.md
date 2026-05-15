@@ -47,22 +47,82 @@
 
 ---
 
-## ⚙️ セットアップ手順 (開発者向け)
+## ⚙️ セットアップ手順 (CMD / 開発者向け)
 
-### 環境変数の設定
-`backend/.env` および `frontend/.env.local` に以下の情報を設定してください。
+### 1. プロジェクトディレクトリへの移動
+コマンドプロンプトを開き、以下のコマンドでプロジェクトのルートフォルダへ移動します。
+
+```cmd
+j:
+cd "j:\Users\Administrator\Documents\toiawaseAI"
+```
+
+### 2. 環境変数の初期設定
+設定ファイルの雛形をコピーし、必要な情報を書き換えます。
+
+```cmd
+copy .env.example .env
+```
+
+作成された `.env` 、および `backend/.env` 、 `frontend/.env.local` をメモ帳などで開き、以下の情報を設定してください。
 
 - `GEMINI_API_KEY`: Google AI Studio より取得
-- `DATABASE_URL`: Supabase の PostgreSQL 接続URI
+- `DATABASE_URL`: Supabase の PostgreSQL 接続URI（ローカルDBを使用する場合は設定不要）
 - `SUPABASE_URL` / `SUPABASE_KEY`: Supabase プロジェクト設定より取得
-- `NEXT_PUBLIC_API_URL`: デプロイされたバックエンドAPIのURL
+- `NEXT_PUBLIC_API_URL`: `http://localhost:8000` (ローカル開発時)
 
-### ローカル起動 (Docker)
-```bash
+### 3. ローカル起動 (Docker / CMD用)
+Docker Desktop等が起動していることを確認し、以下のコマンドを実行します。
+
+```cmd
 docker compose up --build
 ```
+
 - フロントエンド: [http://localhost:3000](http://localhost:3000)
 - バックエンド: [http://localhost:8000](http://localhost:8000)
+- バックエンド詳細（APIドキュメント）: [http://localhost:8000/docs](http://localhost:8000/docs)
+
+---
+
+## 🛠 トラブルシューティング / メンテナンス
+
+各コマンドはコマンドプロンプト（CMD）でプロジェクトのルートディレクトリに移動した状態で実行してください。
+
+### 1. データベースのリセット・データ全消去
+データベースの構造（テーブル定義やEmbedding次元数など）を変更した場合、既存のデータと競合することがあります。その場合は以下のコマンドで一度データベースを完全に消去して再開します。
+
+```cmd
+# ボリューム（保存データ）を含めて削除し、再起動
+docker compose down -v
+docker compose up --build
+```
+
+### 2. バックエンドのみの強制再ビルド
+Pythonのライブラリ（requirements.txt）を追加した場合や、バックエンドのコード変更が即座に反映されない場合は、バックエンドだけを個別に再ビルドします。
+
+```cmd
+docker compose up -d --build backend
+```
+
+### 3. デモデータの初期化
+APIを使用してデモ用のユーザー・データを初期化する場合は、以下のエンドポイントを呼び出すか、スクリプトを実行します。
+
+```cmd
+# バックエンド起動中に実行（PowerShell/CMD）
+curl -X POST http://localhost:8000/api/setup-demo
+```
+
+### 4. 実行ログの監視
+解析中のエラーやチャットの挙動を確認するために、リアルタイムでログを表示します。
+
+```cmd
+# 全サービスのログをリアルタイム表示
+docker compose logs -f
+
+# バックエンドのみ、またはフロントエンドのみ表示
+docker compose logs -f backend
+docker compose logs -f frontend
+```
 
 ---
 Developed by Antigravity

@@ -15,7 +15,8 @@ import models, schemas, database
 from database import engine, get_db, SessionLocal
 from services.document_service import analyze_document
 from services.storage_service import storage_service
-from services.ai_service import get_embedding, generate_answer, generate_standalone_query
+from services.ai_service import get_embedding, generate_answer, analyze_query_and_filters
+from sqlalchemy import or_
 
 app = FastAPI(title="TANK")
 
@@ -128,42 +129,78 @@ def list_documents(db: Session = Depends(get_db)):
     docs = db.query(models.Document).order_by(models.Document.created_at.desc()).all()
     return docs
 
+@app.get("/api/tags")
+def list_tags(db: Session = Depends(get_db)):
+    # tagsはカンマ区切りの文字列として格納されているため、全て取得してユニークなリストを作成する
+    results = db.query(models.Document.tags).filter(models.Document.tags != None).all()
+    all_tags = set()
+    for row in results:
+        if row[0]:
+            # 不要な記号 ({, }, [, ]) を除去してから分割
+            clean_row = row[0].replace("{", "").replace("}", "").replace("[", "").replace("]", "")
+            tags = [t.strip() for t in clean_row.split(",") if t.strip()]
+            all_tags.update(tags)
+    return sorted(list(all_tags))
+
 @app.post("/api/chat")
 def chat(request: schemas.ChatRequest, db: Session = Depends(get_db)):
-    # 0. Contextualize the question (Query Re-writing)
-    search_query = generate_standalone_query(request.message, [h.dict() for h in request.history])
+    # 0. クエリ解析とインテント判定 (Metadata-aware analysis)
+    analysis = analyze_query_and_filters(request.message, [h.dict() for h in request.history])
+    search_query = analysis.get("standalone_query", request.message)
+    is_search_required = analysis.get("is_search_required", True)
     
-    # 1. Embed the search-friendly query
-    question_embedding = get_embedding(search_query)
-    if not question_embedding:
-        raise HTTPException(status_code=500, detail="Failed to generate embedding for the question.")
-
-    # 2. Vector Search (Top 8 with relevance threshold)
-    # distance 0.4 equals roughly 0.6 similarity.
-    results = db.query(models.DocumentChunk).filter(
-        models.DocumentChunk.embedding.cosine_distance(question_embedding) < 0.4
-    ).order_by(
-        models.DocumentChunk.embedding.cosine_distance(question_embedding)
-    ).limit(8).all()
-
-    if not results:
-        return {"answer": "該当する情報は、現在閲覧可能な資料上では確認できません。", "references": []}
-
-    # 3. Form Context
-    context_parts = []
+    context_text = ""
     references = []
-    seen_docs = set()
-    for res in results:
-        doc = db.query(models.Document).filter(models.Document.id == res.document_id).first()
-        if doc:
-            context_parts.append(f"Source: {doc.file_name}\nContent: {res.content}")
-            if doc.id not in seen_docs:
-                references.append({"document_id": str(doc.id), "file_name": doc.file_name})
-                seen_docs.add(doc.id)
 
-    context_text = "\n\n---\n\n".join(context_parts)
-    
-    # 4. Generate Final Answer
+    if is_search_required:
+        # 1. メタデータによるドキュメントの事前絞り込み
+        filters = analysis.get("filters", {})
+        doc_ids = []
+        
+        # フィルタキーワードがある場合、該当するドキュメントを探す
+        keywords = filters.get("file_names", []) + filters.get("customer_names", []) + filters.get("tags", [])
+        if keywords:
+            search_filters = []
+            for kw in keywords:
+                if kw:
+                    search_filters.append(models.Document.file_name.ilike(f"%{kw}%"))
+                    search_filters.append(models.Document.customer_name.ilike(f"%{kw}%"))
+                    search_filters.append(models.Document.tags.ilike(f"%{kw}%"))
+            
+            if search_filters:
+                docs = db.query(models.Document).filter(or_(*search_filters)).all()
+                doc_ids = [d.id for d in docs]
+
+        # 2. 埋め込みとベクトル検索（範囲制限付き）
+        question_embedding = get_embedding(search_query)
+        if question_embedding:
+            # しきい値を 0.3 に厳格化してノイズを抑制
+            query = db.query(models.DocumentChunk).filter(
+                models.DocumentChunk.embedding.cosine_distance(question_embedding) < 0.3
+            )
+            
+            # メタデータフィルタでドキュメントが特定されている場合、範囲を絞る
+            if doc_ids:
+                query = query.filter(models.DocumentChunk.document_id.in_(doc_ids))
+            
+            results = query.order_by(
+                models.DocumentChunk.embedding.cosine_distance(question_embedding)
+            ).limit(8).all()
+
+            if results:
+                # 3. コンテキスト構築
+                context_parts = []
+                seen_docs = set()
+                for res in results:
+                    doc = db.query(models.Document).filter(models.Document.id == res.document_id).first()
+                    if doc:
+                        context_parts.append(f"Source: {doc.file_name}\nContent: {res.content}")
+                        if doc.id not in seen_docs:
+                            references.append({"document_id": str(doc.id), "file_name": doc.file_name})
+                            seen_docs.add(doc.id)
+                context_text = "\n\n---\n\n".join(context_parts)
+
+    # 4. 回答生成 (RAG結果が空でも、履歴に基づき回答)
     answer = generate_answer(search_query, context_text, [h.dict() for h in request.history])
     
     return {"answer": answer, "references": references}
