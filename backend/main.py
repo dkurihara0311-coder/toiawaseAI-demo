@@ -125,11 +125,22 @@ async def upload_file(
     return {"file_id": file_id, "status": "processing"}
 
 @app.get("/api/documents")
-def list_documents(db: Session = Depends(get_db)):
-    docs = db.query(models.Document).order_by(models.Document.created_at.desc()).all()
-    return docs
+@app.get("/documents") # 404回避のためのエイリアス
+def list_documents(sort_key: str = "created_at", sort_order: str = "desc", db: Session = Depends(get_db)):
+    query = db.query(models.Document)
+    
+    # 有効なカラムかつ、SQLインジェクション防止のためモデル属性から取得
+    sort_col = getattr(models.Document, sort_key, models.Document.created_at)
+    
+    if sort_order == "desc":
+        query = query.order_by(sort_col.desc())
+    else:
+        query = query.order_by(sort_col.asc())
+        
+    return query.all()
 
 @app.get("/api/tags")
+@app.get("/tags") # 404回避のためのエイリアス
 def list_tags(db: Session = Depends(get_db)):
     # tagsはカンマ区切りの文字列として格納されているため、全て取得してユニークなリストを作成する
     results = db.query(models.Document.tags).filter(models.Document.tags != None).all()

@@ -14,9 +14,11 @@ import {
   PanelRightClose,
   MoreVertical,
   Paperclip,
-  RefreshCw,
+  RefreshCcw as RefreshCw,
   X,
-  Trash2
+  Trash2,
+  ChevronUp,
+  ChevronDown
 } from "lucide-react";
 import axios from "axios";
 
@@ -50,31 +52,183 @@ export default function Dashboard() {
   
   const [tags, setTags] = useState<string[]>([]);
   const [selectedTag, setSelectedTag] = useState<string>("");
+
+  const [sidebarWidth, setSidebarWidth] = useState(800);
+  const [isResizing, setIsResizing] = useState(false);
+  const [isMounted, setIsMounted] = useState(false);
+  const [isLoadingDocs, setIsLoadingDocs] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [isRestored, setIsRestored] = useState(false);
+  const [isHeaderDragging, setIsHeaderDragging] = useState(false); // D&D競合対策フラグ
+
+  interface SortConfig {
+    key: "file_name" | "created_at" | "type" | "tags";
+    label: string;
+    order: "asc" | "desc";
+  }
+  
+  const [sortConfigs, setSortConfigs] = useState<SortConfig[]>([]);
+
+  // --- カラム設定定数 ---
+  interface ColumnConfig {
+    key: "file_name" | "created_at" | "type" | "tags";
+    label: string;
+    width: string; // カラムごとの比率
+  }
+
+  const DEFAULT_COLUMNS: ColumnConfig[] = [
+    { key: "file_name", label: "名称", width: "w-80 flex-shrink-0" },
+    { key: "created_at", label: "アップロード日", width: "w-28 flex-shrink-0" },
+    { key: "type", label: "種類", width: "w-16 flex-shrink-0" },
+    { key: "tags", label: "属性", width: "w-14 flex-shrink-0" }
+  ];
+
+  const [columnOrder, setColumnOrder] = useState<ColumnConfig[]>(DEFAULT_COLUMNS);
+  const draggedColRef = useRef<number | null>(null);
+
+  const handleColumnDragStart = (index: number) => {
+    setIsHeaderDragging(true);
+    draggedColRef.current = index;
+  };
+
+  const handleColumnDragOver = (e: React.DragEvent<HTMLDivElement>, index: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    if (draggedColRef.current === null || draggedColRef.current === index) return;
+
+    // マウス位置の判定（左右中央を超えた時だけ入れ替えることでチラつきを防止）
+    const targetElement = (e as any).currentTarget as HTMLDivElement;
+    const rect = targetElement.getBoundingClientRect();
+    const mouseX = (e as any).clientX; // DragEvent は MouseEvent を継承しているが React の型定義上キャストが必要な場合がある
+    const threshold = rect.left + rect.width / 2;
+
+    const isMovingForward = draggedColRef.current < index;
+    const isMovingBackward = draggedColRef.current > index;
+
+    if (isMovingForward && mouseX < threshold) return;
+    if (isMovingBackward && mouseX > threshold) return;
+
+    const newOrder = [...columnOrder];
+    const draggedItem = newOrder[draggedColRef.current];
+    newOrder.splice(draggedColRef.current, 1);
+    newOrder.splice(index, 0, draggedItem);
+    
+    setColumnOrder(newOrder);
+    draggedColRef.current = index;
+  };
+
+  const handleColumnDrop = () => {
+    setIsHeaderDragging(false);
+    draggedColRef.current = null;
+  };
+  // ------------------------------------
+
+  // 設定の復元とマウント検知
+  useEffect(() => {
+    setIsMounted(true);
+    const savedWidth = localStorage.getItem("tank_sidebar_width");
+    if (savedWidth) setSidebarWidth(parseInt(savedWidth, 10));
+
+    const savedSort = localStorage.getItem("tank_sort_configs");
+    let initialSort = undefined;
+    if (savedSort) {
+      try {
+        initialSort = JSON.parse(savedSort);
+        if (Array.isArray(initialSort) && initialSort.length > 0) {
+          setSortConfigs(initialSort);
+        }
+      } catch (e) {
+        console.error("Failed to load sort configs", e);
+      }
+    } else {
+      // 初回アクセス時のデフォルト
+      const defaultSort: SortConfig[] = [{ key: "created_at", label: "アップロード日", order: "desc" }];
+      initialSort = defaultSort;
+      setSortConfigs(defaultSort);
+    }
+
+    // 記憶情報の復元
+    const savedTag = localStorage.getItem("tank_selected_tag");
+    if (savedTag) setSelectedTag(savedTag);
+
+    const savedColumns = localStorage.getItem("tank_column_order");
+    if (savedColumns) {
+      try {
+        const parsed = JSON.parse(savedColumns);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          // 幅設定だけは最新の DEFAULT_COLUMNS 定数から強制的に上書きし、順序だけを復元する
+          const updatedColumns = parsed.map(col => {
+            const def = DEFAULT_COLUMNS.find(d => d.key === col.key);
+            return def ? { ...col, width: def.width } : col;
+          });
+          setColumnOrder(updatedColumns);
+        }
+      } catch (e) {
+        console.error("Failed to load column order", e);
+      }
+    }
+    
+    // フェッチを開始（復元完了前に行うことでロード画面を速やかに解除）
+    fetchDocs(initialSort);
+    fetchTags();
+
+    // 最後に復元完了をマーク（これにより保存用 useEffect が古い値で上書きするのを防ぐ）
+    setTimeout(() => {
+      setIsRestored(true);
+    }, 500);
+  }, []);
+
+  // 設定の保存（復元が完了してからのみ実行）
+  useEffect(() => {
+    if (isRestored) {
+      localStorage.setItem("tank_sidebar_width", sidebarWidth.toString());
+    }
+  }, [sidebarWidth, isRestored]);
+
+  useEffect(() => {
+    if (isRestored) {
+      localStorage.setItem("tank_sort_configs", JSON.stringify(sortConfigs));
+    }
+  }, [sortConfigs, isRestored]);
+
+  // 設定の自動保存
+  useEffect(() => {
+    if (isRestored) {
+      localStorage.setItem("tank_column_order", JSON.stringify(columnOrder));
+    }
+  }, [columnOrder, isRestored]);
+
+  useEffect(() => {
+    if (isRestored) {
+      localStorage.setItem("tank_selected_tag", selectedTag);
+    }
+  }, [selectedTag, isRestored]);
   
   const chatEndRef = useRef<HTMLDivElement>(null);
   const dragCounter = useRef(0);
 
   const getApiUrl = () => {
-    if (typeof process !== "undefined" && process.env?.NEXT_PUBLIC_API_URL) {
-      return process.env.NEXT_PUBLIC_API_URL;
-    }
-    if (typeof window !== "undefined") {
-      const { hostname, protocol } = window.location;
-      // localhostなら8000、Render等の本番環境なら10000をデフォルトにする
-      const port = hostname === "localhost" ? "8000" : "10000";
-      return `${protocol}//${hostname}:${port}`;
-    }
-    return "http://localhost:8000";
+    const baseUrl = (typeof process !== "undefined" && process.env?.NEXT_PUBLIC_API_URL) 
+      ? process.env.NEXT_PUBLIC_API_URL 
+      : (typeof window !== "undefined" 
+          ? `${window.location.protocol}//${window.location.hostname}:${window.location.hostname === "localhost" ? "8000" : "10000"}`
+          : "http://localhost:8000");
+    return baseUrl.replace(/\/$/, ""); // 末尾のスラッシュを確実に除去
   };
 
   const API_URL = getApiUrl();
 
   // --- Effects ---
   useEffect(() => {
-    fetchDocs();
+    // マウント時のデモセットアップのみを実行
     axios.post(`${API_URL}/api/setup-demo`).catch((e: any) => console.error("Setup error", e));
 
     const handleDragEnter = (e: DragEvent) => {
+      if (isHeaderDragging) return;
+      // 外部ファイル（Files）のドラッグでない場合は即座に無視
+      if (!e.dataTransfer?.types.includes("Files")) return;
+
       e.preventDefault();
       e.stopPropagation();
       dragCounter.current!++;
@@ -84,6 +238,10 @@ export default function Dashboard() {
     };
 
     const handleDragLeave = (e: DragEvent) => {
+      if (isHeaderDragging) return;
+      // 外部ファイル（Files）のドラッグでない場合は即座に無視
+      if (!e.dataTransfer?.types.includes("Files")) return;
+
       e.preventDefault();
       e.stopPropagation();
       dragCounter.current!--;
@@ -93,6 +251,10 @@ export default function Dashboard() {
     };
 
     const handleDragOver = (e: DragEvent) => {
+      if (isHeaderDragging) return;
+      // 外部ファイル（Files）のドラッグでない場合は即座に無視
+      if (!e.dataTransfer?.types.includes("Files")) return;
+
       e.preventDefault();
       e.stopPropagation();
       if (e.dataTransfer) {
@@ -152,10 +314,7 @@ export default function Dashboard() {
     };
   }, [docs.some(doc => doc.status === 'processing' || doc.status === 'uploaded')]);
 
-  // 初期ロード保証（マウント時に1回実行）
-  useEffect(() => {
-    fetchDocs();
-  }, []);
+  // selectedDoc の同期ロジックのみ維持
 
   // 現在選択中の資料がある場合、最新のリスト (docs) から同期する
   useEffect(() => {
@@ -168,23 +327,114 @@ export default function Dashboard() {
   }, [docs, selectedDoc]);
 
   // --- Actions ---
-  const fetchDocs = async () => {
+  const fetchDocs = async (currentConfigs?: SortConfig[]) => {
+    setIsLoadingDocs(true);
+    setFetchError(null);
     try {
-      const res = await axios.get(`${API_URL}/api/documents`);
+      // サーバーサイド・ソートのパラメータ構築 (第一優先キーを送信)
+      const primary = currentConfigs && currentConfigs.length > 0 ? currentConfigs[0] : (sortConfigs[0] || null);
+      const params = primary ? { sort_key: primary.key, sort_order: primary.order } : {};
+      
+      console.log(`DEBUG: Attempting to fetch documents from ${API_URL}/api/documents with params:`, params);
+      const res = await axios.get(`${API_URL}/api/documents?t=${Date.now()}`, { params, timeout: 10000 });
       setDocs(res.data as Document[]);
+      console.log(`DEBUG: Successfully fetched ${res.data.length} documents.`);
     } catch (e: any) {
-      console.error("Fetch docs error", e);
+      console.error("Fetch docs error:", e);
+      setFetchError("サーバーに接続できません。バックエンドが起動しているか確認してください。");
+    } finally {
+      setIsLoadingDocs(false);
     }
   };
 
   const fetchTags = async () => {
     try {
-      const res = await axios.get(`${API_URL}/api/tags`);
+      const res = await axios.get(`${API_URL}/api/tags?t=${Date.now()}`);
       setTags(res.data as string[]);
     } catch (e: any) {
       console.error("Fetch tags error", e);
     }
   };
+
+  const handleSort = (key: SortConfig["key"], label: string) => {
+    setSortConfigs(prev => {
+      const isFirst = prev.length > 0 && prev[0].key === key;
+      if (isFirst) {
+        // 現在の第一キーなら、順序を反転させるのみ
+        const newOrder = prev[0].order === "asc" ? "desc" : "asc";
+        return [{ ...prev[0], order: newOrder }, ...prev.slice(1)];
+      } else {
+        // 第一キーでないなら、既存の履歴から削除して先頭に（デフォルト順で）追加
+        const filtered = prev.filter(c => c.key !== key);
+        const defaultOrder = (key === "created_at" ? "desc" : "asc");
+        return [{ key, label, order: defaultOrder }, ...filtered];
+      }
+    });
+  };
+
+  // ソート・フィルタ適用後のドキュメントリスト
+  const sortedDocs = [...docs]
+    .sort((a, b) => {
+      // 保存されているソート設定の優先順位（configsのインデックス順）に従って比較
+      for (const config of sortConfigs) {
+        let comparison = 0;
+        const { key, order } = config;
+
+        if (key === "file_name") {
+          comparison = a.file_name.localeCompare(b.file_name, 'ja');
+        } else if (key === "created_at") {
+          comparison = new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+        } else if (key === "type") {
+          const extA = a.file_name.split('.').pop() || "";
+          const extB = b.file_name.split('.').pop() || "";
+          comparison = extA.localeCompare(extB, 'ja');
+        } else if (key === "tags") {
+          // ユーザーの指摘通り、表示状態（○か否か）に基づいてソートする。
+          // フィルタが未選択（すべての属性を表示）の場合は、属性によるソートは行わず常に 0 を返す。
+          if (!selectedTag) {
+            comparison = 0;
+          } else {
+            const hasA = a.tags?.split(',').map(t => t.trim()).includes(selectedTag) ? 1 : 0;
+            const hasB = b.tags?.split(',').map(t => t.trim()).includes(selectedTag) ? 1 : 0;
+            comparison = hasB - hasA; // 「○」がある方を上位に（降順をデフォルト的に扱うなら B - A）
+          }
+        }
+
+        if (comparison !== 0) {
+          return order === "asc" ? comparison : -comparison;
+        }
+      }
+      return 0; // すべての項目が同じなら現状維持
+    });
+
+  const startResizing = React.useCallback((mouseDownEvent: React.MouseEvent) => {
+    setIsResizing(true);
+  }, []);
+
+  const stopResizing = React.useCallback(() => {
+    setIsResizing(false);
+  }, []);
+
+  const resize = React.useCallback(
+    (mouseMoveEvent: MouseEvent) => {
+      if (isResizing) {
+        const newWidth = mouseMoveEvent.clientX;
+        if (newWidth > 300 && newWidth < 1200) {
+          setSidebarWidth(newWidth);
+        }
+      }
+    },
+    [isResizing]
+  );
+
+  useEffect(() => {
+    window.addEventListener("mousemove", resize);
+    window.addEventListener("mouseup", stopResizing);
+    return () => {
+      window.removeEventListener("mousemove", resize);
+      window.removeEventListener("mouseup", stopResizing);
+    };
+  }, [resize, stopResizing]);
 
   const uploadFile = async (file: File) => {
     const allowedExtensions = [".pdf", ".docx", ".xlsx", ".txt", ".md"];
@@ -325,7 +575,15 @@ export default function Dashboard() {
       )}
       
       {/* Sidebar: Document List */}
-      <aside className="w-80 flex-shrink-0 flex flex-col border-r border-white/10 bg-black/40 backdrop-blur-xl">
+      <aside 
+        className="flex-shrink-0 flex flex-col border-r border-white/10 bg-black/40 backdrop-blur-xl relative"
+        style={{ width: `${sidebarWidth}px`, minWidth: '200px', maxWidth: '1200px' }}
+      >
+        {/* Resize Handle */}
+        <div
+          onMouseDown={startResizing}
+          className="absolute right-0 top-0 w-1 h-full cursor-col-resize hover:bg-indigo-500/50 transition-colors z-50"
+        />
         <div className="p-8 flex justify-center">
           <img 
             src="/logo.png" 
@@ -364,41 +622,171 @@ export default function Dashboard() {
               ))}
             </select>
           </div>
-          {docs
-            .filter((doc: Document) => {
-              if (!selectedTag) return true;
-              if (!doc.tags) return false;
-              const docTagList = doc.tags.split(',').map(t => t.trim());
-              return docTagList.includes(selectedTag);
-            })
-            .map((doc: Document) => (
-            <div
-              key={doc.id}
-              onClick={() => { setSelectedDoc(doc); setShowDocPanel(true); }}
-              className={`w-full flex items-center gap-3 p-3 rounded-lg text-left transition-all hover:bg-white/5 group 
-                ${selectedDoc?.id === doc.id ? 'bg-white/10 border-l-2 border-indigo-500' : ''} 
-                ${doc.status === 'failed' ? 'bg-red-500/5' : ''} 
-                cursor-pointer`}
-            >
-              {doc.status === 'completed' ? (
-                <FileText className="w-5 h-5 flex-shrink-0 text-green-500" />
-              ) : doc.status === 'failed' ? (
-                <X className="w-5 h-5 flex-shrink-0 text-red-500 stroke-[3]" />
+
+        {/* Scrollable Document Area (Header + List Integrated) */}
+        <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+          <div className="flex-1 overflow-y-auto overflow-x-auto px-2 space-y-1 custom-scrollbar">
+            <div className="min-w-max pb-4">
+              {/* Sort Headers - Forced Width to prevent displacement */}
+              <div className="w-full flex items-center gap-3 px-4 py-2 border-b border-white/5 mb-1 select-none">
+                <div className="shrink-0 w-5 flex items-center justify-center opacity-0 uppercase font-black text-[10px]">
+                  ICON
+                </div>
+
+                <div className="flex items-center gap-3 px-1 min-w-0">
+                  {columnOrder.map((item, idx) => {
+                    const configIndex = sortConfigs.findIndex(c => c.key === item.key);
+                    const config = sortConfigs[configIndex];
+                    const isFirst = configIndex === 0;
+
+                    // クラス名から物理ピクセルをマッピング
+                    const widthMap: Record<string, string> = {
+                      "w-80": "320px",
+                      "w-48": "192px",
+                      "w-36": "144px",
+                      "w-32": "128px",
+                      "w-28": "112px",
+                      "w-24": "96px",
+                      "w-20": "80px",
+                      "w-16": "64px",
+                      "w-14": "56px",
+                      "w-12": "48px"
+                    };
+                    const physicalWidth = widthMap[item.width.split(' ')[0]] || "auto";
+                    const isDraggingThis = draggedColRef.current === idx;
+
+                    return (
+                      <div
+                        key={item.key}
+                        draggable
+                        onDragStart={() => handleColumnDragStart(idx)}
+                        onDragOver={(e) => handleColumnDragOver(e, idx)}
+                        onDrop={handleColumnDrop}
+                        onDragEnd={handleColumnDrop}
+                        onClick={() => handleSort(item.key as any, item.label)}
+                        className={`min-w-0 flex-shrink-0 px-2 flex flex-col items-start cursor-pointer group box-border overflow-hidden ${item.width} transition-colors ${isDraggingThis ? 'opacity-30' : ''}`}
+                        style={{ width: physicalWidth, minWidth: physicalWidth, flex: '0 0 auto' }}
+                      >
+                        <div className="flex items-center gap-1 w-full overflow-hidden">
+                          <span className={`text-[10px] font-bold uppercase tracking-wider truncate shrink ${isFirst ? 'text-indigo-400' : 'text-gray-500 group-hover:text-gray-300'}`}>
+                            {item.label}
+                          </span>
+                          {config && (
+                            <div className="shrink-0">
+                              {config.order === "asc" ? 
+                                <ChevronUp className={`w-2.5 h-2.5 ${isFirst ? 'text-indigo-500' : 'text-gray-600'}`} /> : 
+                                <ChevronDown className={`w-2.5 h-2.5 ${isFirst ? 'text-indigo-500' : 'text-gray-600'}`} />
+                              }
+                            </div>
+                          )}
+                        </div>
+                        {configIndex !== -1 && (
+                          <div className="flex items-center mt-0.5">
+                            <span className={`text-[8px] leading-none py-0.5 px-1 rounded-sm ${isFirst ? 'bg-indigo-600/50 text-white' : 'bg-gray-800 text-gray-500'}`}>
+                              {configIndex + 1}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {!isMounted || isLoadingDocs ? (
+                <div className="px-2 space-y-3 animate-pulse">
+                  {[1, 2, 3, 4, 5].map((i) => (
+                    <div key={i} className="flex items-center gap-3 p-3 rounded-lg bg-white/5 w-[600px]">
+                      <div className="w-5 h-5 rounded bg-white/10"></div>
+                      <div className="flex-1 space-y-2">
+                        <div className="h-3 bg-white/10 rounded w-3/4"></div>
+                        <div className="h-2 bg-white/10 rounded w-1/4"></div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : fetchError ? (
+                <div className="flex flex-col items-center justify-center py-12 text-center px-4">
+                  <X className="w-8 h-8 text-red-500 mb-4" />
+                  <div className="text-xs font-medium text-red-400">{fetchError}</div>
+                  <button onClick={() => { fetchDocs(); fetchTags(); }} className="mt-4 px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-xs flex items-center gap-2 mx-auto">
+                    <RefreshCw className="w-3 h-3" />
+                    再試行
+                  </button>
+                </div>
+              ) : sortedDocs.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 text-center px-4">
+                  <FileText className="w-8 h-8 text-gray-600 mb-4" />
+                  <div className="text-xs font-medium text-gray-500">資料がありません</div>
+                </div>
               ) : (
-                <RefreshCw className="w-4 h-4 flex-shrink-0 text-gray-500" />
+                sortedDocs.map((doc: Document) => (
+                  <div
+                    key={doc.id}
+                    onClick={() => { setSelectedDoc(doc); setShowDocPanel(true); }}
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left transition-all hover:bg-white/5 group 
+                      ${selectedDoc?.id === doc.id ? 'bg-white/10 border-l-2 border-indigo-500' : ''} 
+                      cursor-pointer`}
+                  >
+                    <div className="shrink-0 w-5 flex items-center justify-center">
+                      {doc.status === 'completed' ? (
+                        <FileText className="w-5 h-5 text-green-500" />
+                      ) : doc.status === 'failed' ? (
+                        <X className="w-5 h-5 text-red-500 stroke-[3]" />
+                      ) : (
+                        <RefreshCw className="w-4 h-4 text-gray-500" />
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-3 px-1 min-w-0">
+                      {columnOrder.map((col) => {
+                        const date = new Date(doc.created_at);
+                        const ymd = `${date.getFullYear()}/${(date.getMonth()+1).toString().padStart(2, '0')}/${date.getDate().toString().padStart(2, '0')}`;
+                        const hms = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}:${date.getSeconds().toString().padStart(2, '0')}`;
+                        const cellClass = `${col.width} min-w-0 flex-shrink-0 px-2`;
+
+                        if (col.key === "file_name") {
+                          return (
+                            <div key={col.key} className={`${cellClass} flex items-center`}>
+                              <div className="text-sm font-medium truncate text-white leading-tight">
+                                {doc.file_name}
+                              </div>
+                            </div>
+                          );
+                        }
+                        if (col.key === "created_at") {
+                          return (
+                            <div key={col.key} className={`${cellClass} text-[10px] text-gray-500 text-left`}>
+                              {ymd} {hms}
+                            </div>
+                          );
+                        }
+                        if (col.key === "tags") {
+                          const hasMatch = selectedTag && doc.tags?.split(',').map(t => t.trim()).includes(selectedTag);
+                          return (
+                            <div key={col.key} className={`flex items-center justify-start px-2 ${col.width}`}>
+                              <span className={`text-[12px] font-black ${hasMatch ? 'text-indigo-400' : 'text-transparent'}`}>
+                                {hasMatch ? "○" : ""}
+                              </span>
+                            </div>
+                          );
+                        }
+                        if (col.key === "type") {
+                          return (
+                            <div key={col.key} className={`${cellClass} text-[10px] text-gray-500 uppercase text-left`}>
+                              {doc.file_name.split('.').pop()}
+                            </div>
+                          );
+                        }
+                        return null;
+                      })}
+                    </div>
+                  </div>
+                ))
               )}
-              <div className="flex-1 truncate">
-                <div className="text-sm font-medium truncate text-white">
-                  {doc.file_name}
-                </div>
-                <div className="text-[10px] text-gray-500">
-                  {new Date(doc.created_at).toLocaleDateString()}
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-              </div>
             </div>
-          ))}
+          </div>
+        </div>
         </div>
 
         {/* Foot Logo */}

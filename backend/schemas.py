@@ -15,3 +15,16 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     answer: str
     references: List[dict]
+
+class Document(BaseModel):
+    id: UUID
+    file_name: str
+    file_path: str
+    type: str
+    created_at: datetime
+    updated_at: datetime
+    tags: Optional[str] = None
+    original_id: Optional[UUID] = None
+
+    class Config:
+        from_attributes = True
