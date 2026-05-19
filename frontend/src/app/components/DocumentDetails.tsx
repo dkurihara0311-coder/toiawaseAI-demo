@@ -10,13 +10,15 @@ interface DocumentDetailsProps {
   onClose: () => void;
   onDelete: (id: string, e: React.MouseEvent) => void;
   onDownload: (id: string, type: 'original' | 'md') => void;
+  onReextractTags: (id: string) => void;
 }
 
 export const DocumentDetails = ({
   doc,
   onClose,
   onDelete,
-  onDownload
+  onDownload,
+  onReextractTags
 }: DocumentDetailsProps) => {
   // 要約のパースロジックを完全復元
   const getSummaryContent = () => {
@@ -89,9 +91,19 @@ export const DocumentDetails = ({
             <div className="text-[10px] text-gray-500 uppercase font-bold mb-1">関連組織 / 名称</div>
             <div className="text-sm font-medium text-gray-200">{doc.customer_name || '未抽出'}</div>
           </div>
-          {doc.tags && (
-            <div>
-              <div className="text-[10px] text-gray-500 uppercase font-bold mb-2">属性タグ</div>
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[10px] text-gray-500 uppercase font-bold">属性タグ</span>
+              <button
+                onClick={() => onReextractTags(doc.id)}
+                disabled={doc.status === 'processing' || doc.status === 'uploaded'}
+                className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition-all active:scale-95 shadow-lg shadow-emerald-500/20 disabled:opacity-50"
+              >
+                <RefreshCw className={`w-4 h-4 ${doc.status === 'processing' ? 'animate-spin' : ''}`} />
+                再抽出
+              </button>
+            </div>
+            {doc.tags ? (
               <div className="flex flex-wrap gap-1.5">
                 {doc.tags.split(',').map((tag: string, i: number) => (
                   <span key={i} className="px-2 py-0.5 bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 rounded-md text-[10px]">
@@ -99,8 +111,10 @@ export const DocumentDetails = ({
                   </span>
                 ))}
               </div>
-            </div>
-          )}
+            ) : (
+              <div className="text-sm font-medium text-gray-500 italic">なし</div>
+            )}
+          </div>
           <div>
             <div className="text-[10px] text-gray-500 uppercase font-bold mb-1">アップロード日時</div>
             <div className="text-sm font-medium text-gray-200">{new Date(doc.created_at).toLocaleString()}</div>

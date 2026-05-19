@@ -13,7 +13,7 @@ from typing import List
 
 import models, schemas, database
 from database import engine, get_db, SessionLocal
-from services.document_service import analyze_document
+from services.document_service import analyze_document, reextract_document_tags
 from services.storage_service import storage_service
 from services.ai_service import get_embedding, generate_answer, analyze_query_and_filters
 from sqlalchemy import or_
@@ -81,6 +81,19 @@ def analyze_bg(document_id: str):
         return
     finally:
         # Check if session is still open (might have been closed in except)
+        try:
+            db.close()
+        except:
+            pass
+
+def reextract_tags_bg(document_id: str):
+    db = SessionLocal()
+    try:
+        reextract_document_tags(document_id, db)
+    except Exception as e:
+        print(f"CRITICAL ERROR in background tag re-extraction: {e}")
+        db.rollback()
+    finally:
         try:
             db.close()
         except:
@@ -316,6 +329,19 @@ def export_document_md(document_id: uuid.UUID, db: Session = Depends(get_db)):
         media_type="text/markdown; charset=utf-8",
         headers={"Content-Disposition": f"attachment; filename={doc.id}.md"}
     )
+
+@app.post("/api/documents/{document_id}/reextract-tags")
+def reextract_tags(
+    document_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db)
+):
+    doc = db.query(models.Document).filter(models.Document.id == document_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    
+    background_tasks.add_task(reextract_tags_bg, str(document_id))
+    return {"status": "processing"}
 
 @app.delete("/api/documents/{document_id}")
 async def delete_document(document_id: uuid.UUID, db: Session = Depends(get_db)):

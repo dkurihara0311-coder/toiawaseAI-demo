@@ -93,7 +93,7 @@ export default function Dashboard() {
         const parsed = JSON.parse(savedColumns);
         if (Array.isArray(parsed) && parsed.length > 0) {
           // localStorageからは「キーの順序」だけを抽出（旧仕様のオブジェクト配列にも対応）
-          const savedKeys = parsed.map(col => typeof col === 'string' ? col : col.key);
+          const savedKeys = parsed.map(col => typeof col === 'string' ? col : (col ? (col as any).key : undefined));
           
           let updated: ColumnConfig[] = [];
           
@@ -193,6 +193,30 @@ export default function Dashboard() {
     }
   }, [docs, selectedDoc]);
 
+  // --- Effect: Sidebar Resizing ---
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizing) return;
+      e.preventDefault(); // ドラッグ時の不要なテキスト選択やドラッグイベントを防止
+      const newWidth = Math.max(200, Math.min(1200, e.clientX));
+      setSidebarWidth(newWidth);
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+    };
+
+    if (isResizing) {
+      window.addEventListener("mousemove", handleMouseMove);
+      window.addEventListener("mouseup", handleMouseUp);
+    }
+
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [isResizing]);
+
   // --- Actions ---
   const fetchDocs = async (configs?: SortConfig[]) => {
     setIsLoadingDocs(true); setFetchError(null);
@@ -204,6 +228,7 @@ export default function Dashboard() {
       
       const res = await axios.get(`${API_URL}/api/documents?t=${Date.now()}`, { params, timeout: 10000 });
       setDocs(res.data);
+      fetchTags();
     } catch (e) {
       setFetchError("サーバーに接続できません。バックエンドが起動しているか確認してください。");
     } finally { setIsLoadingDocs(false); }
@@ -272,6 +297,20 @@ export default function Dashboard() {
     } catch (e) { alert("ダウンロードに失敗きました。"); }
   };
 
+  const handleReextractTags = async (id: string) => {
+    try {
+      await axios.post(`${API_URL}/api/documents/${id}/reextract-tags`);
+      
+      // Update local state status to 'processing' to trigger loading/spinner UI
+      setDocs(prev => prev.map(d => d.id === id ? { ...d, status: 'processing' } : d));
+      if (selectedDoc?.id === id) {
+        setSelectedDoc(prev => prev ? { ...prev, status: 'processing' } : null);
+      }
+    } catch (e) {
+      alert("タグの再抽出要求に失敗しました。");
+    }
+  };
+
   const handleSort = (key: SortConfig["key"], label: string) => {
     setSortConfigs(prev => {
       const isFirst = prev.length > 0 && prev[0].key === key;
@@ -281,7 +320,7 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[#050510] text-gray-100 font-sans relative">
+    <div className={`flex h-screen overflow-hidden bg-[#050510] text-gray-100 font-sans relative ${isResizing ? 'select-none' : ''}`}>
       <UploadZone isDragging={isDragging} />
       
       {/* Sidebar Area */}
@@ -289,7 +328,7 @@ export default function Dashboard() {
         className="flex-shrink-0 flex flex-col border-r border-white/10 bg-black/40 backdrop-blur-xl relative"
         style={{ width: `${sidebarWidth}px`, minWidth: '200px', maxWidth: '1200px' }}
       >
-        <div onMouseDown={() => setIsResizing(true)} className="absolute right-0 top-0 w-1 h-full cursor-col-resize hover:bg-indigo-500/50 z-50" />
+        <div onMouseDown={() => setIsResizing(true)} className="absolute -right-1 top-0 w-2 h-full cursor-col-resize hover:bg-indigo-500/30 z-50" />
         
         <div className="p-8 flex justify-center">
           <img src="/logo.png" alt="TANK" className="w-48 h-auto mix-blend-screen brightness-110" />
@@ -331,6 +370,7 @@ export default function Dashboard() {
           <DocumentDetails 
             doc={selectedDoc} onClose={() => setShowDocPanel(false)}
             onDelete={deleteDoc} onDownload={downloadAction}
+            onReextractTags={handleReextractTags}
           />
         ) : (
           <div className="w-[450px] h-full flex items-center justify-center text-gray-600 text-sm italic">
