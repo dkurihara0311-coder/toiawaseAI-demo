@@ -6,7 +6,7 @@ database_url = "postgresql://postgres.dqzhoedoubikpkwsndjs:toiawaseRag@aws-0-ap-
 
 print("Connecting to remote database and updating schema...")
 
-sql = "ALTER TABLE documents ADD COLUMN IF NOT EXISTS summary TEXT; ALTER TABLE documents ADD COLUMN IF NOT EXISTS tags TEXT;"
+sql = "ALTER TABLE documents ADD COLUMN IF NOT EXISTS summary TEXT; ALTER TABLE documents ADD COLUMN IF NOT EXISTS tags TEXT; ALTER TABLE documents ADD COLUMN IF NOT EXISTS customer_name TEXT; ALTER TABLE documents ADD COLUMN IF NOT EXISTS file_size INTEGER DEFAULT 0;"
 
 try:
     engine = sqlalchemy.create_engine(database_url)

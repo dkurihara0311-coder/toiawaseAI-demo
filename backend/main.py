@@ -115,6 +115,7 @@ async def upload_file(
         file_name=file.filename,
         storage_path=remote_path, # Use remote path as unique identifier
         uploaded_by=DEMO_USER_ID,
+        file_size=len(content),
         status="uploaded"
     )
     db.add(doc)
@@ -152,6 +153,19 @@ def list_tags(db: Session = Depends(get_db)):
             tags = [t.strip() for t in clean_row.split(",") if t.strip()]
             all_tags.update(tags)
     return sorted(list(all_tags))
+
+@app.get("/api/organizations")
+@app.get("/organizations")
+def list_organizations(db: Session = Depends(get_db)):
+    # customer_name はカンマ区切りの文字列として格納される仕様に変更（タグと同様）
+    results = db.query(models.Document.customer_name).filter(models.Document.customer_name != None).all()
+    all_orgs = set()
+    for row in results:
+        if row[0]:
+            clean_row = row[0].replace("{", "").replace("}", "").replace("[", "").replace("]", "")
+            orgs = [o.strip() for o in clean_row.split(",") if o.strip()]
+            all_orgs.update(orgs)
+    return sorted(list(all_orgs))
 
 @app.post("/api/chat")
 def chat(request: schemas.ChatRequest, db: Session = Depends(get_db)):

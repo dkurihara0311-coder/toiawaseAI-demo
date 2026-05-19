@@ -24,6 +24,7 @@ class Document(Base):
     # Metadata (Simplified for MVP, extensible later)
     document_type = Column(String)
     customer_name = Column(String)
+    file_size = Column(Integer, default=0)
     summary = Column(Text)
     tags = Column(String)
 

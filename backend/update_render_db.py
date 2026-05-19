@@ -8,7 +8,7 @@ DB_URL = "postgresql://toiawaseragdb_user:8lc53dI9w2AaNMNnXplizuIyFIdyCiW7@dpg-d
 
 print(f"Connecting to: {DB_URL}")
 
-sql = "ALTER TABLE documents ADD COLUMN IF NOT EXISTS summary TEXT; ALTER TABLE documents ADD COLUMN IF NOT EXISTS tags TEXT;"
+sql = "ALTER TABLE documents ADD COLUMN IF NOT EXISTS summary TEXT; ALTER TABLE documents ADD COLUMN IF NOT EXISTS tags TEXT; ALTER TABLE documents ADD COLUMN IF NOT EXISTS customer_name TEXT; ALTER TABLE documents ADD COLUMN IF NOT EXISTS file_size INTEGER DEFAULT 0;"
 
 try:
     engine = create_engine(DB_URL)
