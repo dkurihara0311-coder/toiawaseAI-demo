@@ -55,81 +55,97 @@ export default function Dashboard() {
     const baseUrl = (typeof process !== "undefined" && process.env?.NEXT_PUBLIC_API_URL) 
       ? process.env.NEXT_PUBLIC_API_URL 
       : (typeof window !== "undefined" 
-          ? `${window.location.protocol}//${window.location.hostname}:${window.location.hostname === "localhost" ? "8000" : "10000"}`
+          ? (window.location.hostname === "localhost" ? "http://localhost:8000" : "") 
           : "http://localhost:8000");
-    return baseUrl.replace(/\/$/, "");
+    return baseUrl ? baseUrl.replace(/\/$/, "") : "";
   })();
 
-  // --- Effects: Persistence ---
+  // Promiseの確実なタイムアウト処理（AbortControllerが効かない環境への対策）
+  const withTimeout = <T,>(promise: Promise<T>, ms: number, message: string = "Timeout"): Promise<T> => {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(message)), ms);
+      promise.then(res => { clearTimeout(timer); resolve(res); })
+             .catch(err => { clearTimeout(timer); reject(err); });
+    });
+  };
+
   useEffect(() => {
+    let isCancelled = false;
     setIsMounted(true);
-    const savedWidth = localStorage.getItem("tank_sidebar_width");
-    if (savedWidth) setSidebarWidth(parseInt(savedWidth, 10));
-
-    const savedSort = localStorage.getItem("tank_sort_configs");
-    let initialSort = undefined;
-    if (savedSort) {
-      try {
-        const parsed = JSON.parse(savedSort);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setSortConfigs(parsed);
-          initialSort = parsed;
-        }
-      } catch (e) { console.error(e); }
-    } else {
-      initialSort = [{ key: "created_at", label: "アップロード日", order: "desc" }] as SortConfig[];
-      setSortConfigs(initialSort);
-    }
-
-    // 記憶情報の復元
-    const savedTag = localStorage.getItem("tank_selected_tag");
-    if (savedTag) setSelectedTag(savedTag);
-    const savedOrg = localStorage.getItem("tank_selected_org");
-    if (savedOrg) setSelectedOrg(savedOrg);
-
-    const savedColumns = localStorage.getItem("tank_column_order");
-    if (savedColumns) {
-      try {
-        const parsed = JSON.parse(savedColumns);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          // localStorageからは「キーの順序」だけを抽出（旧仕様のオブジェクト配列にも対応）
-          const savedKeys = parsed.map(col => typeof col === 'string' ? col : (col ? (col as any).key : undefined));
-          
-          let updated: ColumnConfig[] = [];
-          
-          // 1. 保存された順序に従って DEFAULT_COLUMNS から最新のマスターオブジェクトを取得
-          savedKeys.forEach(key => {
-            const def = DEFAULT_COLUMNS.find(d => d.key === key);
-            if (def) updated.push(def);
-          });
-          
-          // 2. 新しく追加されたカラム（保存データに無いもの）を、デフォルトのインデックス位置に挿入
-          DEFAULT_COLUMNS.forEach((defCol, index) => {
-            if (!updated.find((c: ColumnConfig) => c.key === defCol.key)) {
-              updated.splice(index, 0, defCol);
-            }
-          });
-          
-          setColumnOrder(updated);
-        }
-      } catch (e) { console.error(e); }
-    }
     
-    const initData = async () => {
-      try {
-        await axios.post(`${API_URL}/api/setup-demo`, {}, { timeout: 30000 });
-      } catch (e) { console.error("Setup demo failed or timeout", e); }
-      
-      // フェッチを開始
-      await fetchDocs(initialSort);
-      fetchTags();
-      
-      // 設定復旧完了をマーク
-      setTimeout(() => setIsRestored(true), 800);
-    };
+    let initialSort = [{ key: "created_at", label: "アップロード日", order: "desc" }] as SortConfig[];
 
-    initData();
+    
+    try {
+      const savedWidth = localStorage.getItem("tank_sidebar_width");
+      if (savedWidth) setSidebarWidth(parseInt(savedWidth, 10));
+
+      const savedSort = localStorage.getItem("tank_sort_configs");
+      if (savedSort) {
+        try {
+          const parsed = JSON.parse(savedSort);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setSortConfigs(parsed);
+            initialSort = parsed;
+          }
+        } catch (e) { console.error(e); }
+      } else {
+        setSortConfigs(initialSort);
+      }
+      
+      const savedColumns = localStorage.getItem("tank_column_order");
+      if (savedColumns) {
+        try {
+          const parsed = JSON.parse(savedColumns);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            const savedKeys = parsed.map(col => typeof col === 'string' ? col : (col ? (col as any).key : undefined));
+            let updated: ColumnConfig[] = [];
+            savedKeys.forEach(key => {
+              const def = DEFAULT_COLUMNS.find(d => d.key === key);
+              if (def) updated.push(def);
+            });
+            DEFAULT_COLUMNS.forEach((defCol, index) => {
+              if (!updated.find((c: ColumnConfig) => c.key === defCol.key)) {
+                updated.splice(index, 0, defCol);
+              }
+            });
+            setColumnOrder(updated);
+          }
+        } catch (e) { console.error(e); }
+      }
+      
+      const savedTag = localStorage.getItem("tank_selected_tag");
+      if (savedTag) setSelectedTag(savedTag);
+      const savedOrg = localStorage.getItem("tank_selected_org");
+      if (savedOrg) setSelectedOrg(savedOrg);
+      
+    } catch (error) {
+      console.error("Initialization error:", error);
+      if (!isCancelled) setSortConfigs(initialSort);
+    } finally {
+      // どのような例外が起きても、必ず初回のデータフェッチを実行する
+      if (!isCancelled) {
+        fetchDocs(initialSort);
+        setIsRestored(true);
+      }
+    }
+
+    return () => {
+      isCancelled = true;
+    };
   }, []);
+
+  const isInitialMount = useRef(true);
+
+  useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
+    if (sortConfigs.length > 0) {
+      fetchDocs();
+    }
+  }, [sortConfigs]);
 
   useEffect(() => {
     if (isRestored) {
@@ -225,33 +241,50 @@ export default function Dashboard() {
   }, [isResizing]);
 
   const fetchDocs = async (configs?: SortConfig[], silent: boolean = false) => {
-    if (!silent) setIsLoadingDocs(true); 
-    if (!silent) setFetchError(null);
+    if (!silent) {
+      setIsLoadingDocs(true); 
+      setFetchError(null);
+    }
+    
     try {
-      // 渡された configs があればそれを、なければ最新の sortConfigs を使用
       const activeConfigs = configs || sortConfigs;
       const primary = activeConfigs.length > 0 ? activeConfigs[0] : null;
       const params = primary ? { sort_key: primary.key, sort_order: primary.order } : {};
       
-      const res = await axios.get(`${API_URL}/api/documents?t=${Date.now()}`, { params, timeout: 15000 });
+      const res = await withTimeout(
+        axios.get(`${API_URL}/api/documents?t=${Date.now()}`, { params }),
+        12000,
+        "サーバーからの応答がタイムアウトしました。"
+      );
+      
       setDocs(res.data);
-      fetchTags();
-    } catch (e) {
-      if (!silent) setFetchError("サーバーに接続できません。バックエンドが起動しているか確認してください。");
-    } finally { 
-      if (!silent) setIsLoadingDocs(false); 
+      await fetchTags();
+      
+    } catch (e: any) {
+      if (!silent) {
+        if (e.message?.includes('タイムアウト') || e.message?.includes('timeout') || e.code === 'ECONNABORTED') {
+          setFetchError("サーバーからの応答がタイムアウトしました。再読み込みしてください。");
+        } else {
+          setFetchError(`通信エラー: ${e.message || '詳細不明'}。バックエンドが起動しているか確認してください。`);
+        }
+      }
+      console.error("fetchDocs error:", e);
+    } finally {
+      if (!silent) setIsLoadingDocs(false);
     }
   };
 
   const fetchTags = async () => {
     try {
-      const [tagsRes, orgsRes] = await Promise.all([
+      const [tagsRes, orgsRes] = await withTimeout(Promise.all([
         axios.get(`${API_URL}/api/tags?t=${Date.now()}`),
         axios.get(`${API_URL}/api/organizations?t=${Date.now()}`)
-      ]);
+      ]), 10000, "Tags fetch timeout");
       setTags(tagsRes.data);
       setOrgs(orgsRes.data);
-    } catch (e) { console.error(e); }
+    } catch (e) { 
+      console.error("fetchTags error:", e);
+    }
   };
 
   const uploadFile = async (file: File) => {
@@ -362,7 +395,7 @@ export default function Dashboard() {
           setIsHeaderDragging={setIsHeaderDragging}
         />
 
-        <div className="p-8 flex justify-center border-t border-white/5 mt-auto">
+        <div className="p-8 flex justify-start border-t border-white/5 mt-auto">
           <img src="/footlogo.png" alt="Foot Logo" className="w-full max-w-xs h-auto opacity-60 mix-blend-screen" />
         </div>
       </aside>

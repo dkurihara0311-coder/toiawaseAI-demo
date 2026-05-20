@@ -40,6 +40,17 @@ def startup():
     # 2. Create tables
     models.Base.metadata.create_all(bind=engine)
 
+    # 3. Setup Demo User
+    db = SessionLocal()
+    try:
+        user = models.User(id=DEMO_USER_ID, email="demo@example.com", display_name="Demo User")
+        db.merge(user)
+        db.commit()
+    except Exception as e:
+        print(f"Error creating demo user: {e}")
+    finally:
+        db.close()
+
 @app.get("/")
 def read_root():
     return {"message": "Welcome to TANK API"}
@@ -47,12 +58,7 @@ def read_root():
 # Placeholder for Demo User
 DEMO_USER_ID = "00000000-0000-0000-0000-000000000001"
 
-@app.post("/api/setup-demo")
-def setup_demo(db: Session = Depends(get_db)):
-    user = models.User(id=DEMO_USER_ID, email="demo@example.com", display_name="Demo User")
-    db.merge(user)
-    db.commit()
-    return {"status": "ok", "user_id": DEMO_USER_ID}
+# Endpoint removed: Demo user is now created automatically on startup.
 
 # Background analysis wrapper to get fresh DB session
 def analyze_bg(document_id: str):

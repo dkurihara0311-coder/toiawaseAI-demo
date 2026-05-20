@@ -58,6 +58,7 @@ export const DocumentLibrary = ({
 }: DocumentLibraryProps) => {
   const draggedColRef = useRef<number | null>(null);
 
+  const [presetType, setPresetType] = useState<string>("none");
   const [themeInput, setThemeInput] = useState("");
   const [isClassifying, setIsClassifying] = useState(false);
   
@@ -81,33 +82,31 @@ export const DocumentLibrary = ({
     return baseUrl.replace(/\/$/, "");
   })();
 
+  const handlePresetChange = (val: string) => {
+    setPresetType(val);
+    setThemeInput("");
+    setTreeConfig(null);
+    setSelectedTreeNode(null);
+
+    if (val === "date") {
+      setTreeConfig({ target_column: "created_at", grouping_type: "date", extracted_tree: {} });
+    } else if (val === "type") {
+      setTreeConfig({ target_column: "document_type", grouping_type: "exact_match", extracted_tree: {} });
+    } else if (val === "ext") {
+      setTreeConfig({ target_column: "file_name", grouping_type: "extension", extracted_tree: {} });
+    } else if (val === "org") {
+      setTreeConfig({ target_column: "customer_name", grouping_type: "comma_separated", extracted_tree: {} });
+    }
+  };
+
   const handleClassify = async () => {
+    if (presetType !== "custom") return;
+    
     const input = themeInput.trim();
     if (!input) return;
     setIsClassifying(true);
     setTreeConfig(null);
     setSelectedTreeNode(null);
-
-    const lowerInput = input.toLowerCase();
-    const isDate = ["アップロード", "更新日", "アップロード日", "日付", "登録日", "作成日", "年月", "日時"].some(k => lowerInput.includes(k));
-    const isExt = ["拡張子", "形式", "ファイル形式", "種類"].some(k => lowerInput.includes(k) && !lowerInput.includes("書類"));
-    const isOrg = ["企業", "顧客", "会社", "取引先"].some(k => lowerInput.includes(k));
-
-    if (isDate) {
-      setTreeConfig({ target_column: "created_at", grouping_type: "date", extracted_tree: {} });
-      setIsClassifying(false);
-      return;
-    }
-    if (isExt) {
-      setTreeConfig({ target_column: "file_name", grouping_type: "extension", extracted_tree: {} });
-      setIsClassifying(false);
-      return;
-    }
-    if (isOrg) {
-      setTreeConfig({ target_column: "customer_name", grouping_type: "comma_separated", extracted_tree: {} });
-      setIsClassifying(false);
-      return;
-    }
 
     try {
       const res = await axios.get(`${API_URL}/api/tree/classify`, { params: { theme: input } });
@@ -294,22 +293,38 @@ export const DocumentLibrary = ({
       <div className="w-56 border-r border-white/5 flex flex-col min-h-0 bg-black/20 shrink-0">
         <div className="p-4 border-b border-white/5">
           <div className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider mb-2">AI動的分類ツリー</div>
-          <div className="flex gap-2">
-            <input 
-              type="text" 
-              value={themeInput}
-              onChange={e => setThemeInput(e.target.value)}
-              placeholder="例: 書類種類, アップロード日, 関連企業..."
-              className="flex-1 min-w-0 bg-white/5 border border-white/10 rounded px-2 py-1 text-xs text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
-              onKeyDown={e => e.key === 'Enter' && handleClassify()}
-            />
-            <button 
-              onClick={handleClassify}
-              disabled={isClassifying || !themeInput.trim()}
-              className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded px-2 py-1 flex items-center justify-center transition-colors shrink-0"
+          <div className="flex flex-col gap-2">
+            <select
+              value={presetType}
+              onChange={e => handlePresetChange(e.target.value)}
+              className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 appearance-none cursor-pointer"
             >
-              {isClassifying ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
-            </button>
+              <option value="none" className="bg-[#0a0a20]">▼ 分類軸を選択</option>
+              <option value="type" className="bg-[#0a0a20]">書類種類</option>
+              <option value="date" className="bg-[#0a0a20]">アップロード日</option>
+              <option value="ext" className="bg-[#0a0a20]">ファイル形式</option>
+              <option value="org" className="bg-[#0a0a20]">関連企業</option>
+              <option value="custom" className="bg-[#0a0a20]">その他 (AI動的分類)</option>
+            </select>
+            
+            <div className="flex gap-2">
+              <input 
+                type="text" 
+                value={themeInput}
+                onChange={e => setThemeInput(e.target.value)}
+                placeholder="任意のテーマを入力..."
+                disabled={presetType !== "custom"}
+                className={`flex-1 min-w-0 bg-white/5 border border-white/10 rounded px-2 py-1 text-xs text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 ${presetType !== "custom" ? "opacity-30 cursor-not-allowed" : ""}`}
+                onKeyDown={e => e.key === 'Enter' && presetType === "custom" && handleClassify()}
+              />
+              <button 
+                onClick={handleClassify}
+                disabled={presetType !== "custom" || isClassifying || !themeInput.trim()}
+                className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-30 disabled:cursor-not-allowed text-white rounded px-2 py-1 flex items-center justify-center transition-colors shrink-0"
+              >
+                {isClassifying ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
+              </button>
+            </div>
           </div>
           {treeConfig && (
             <div className="mt-2 text-[10px] text-gray-500 font-mono flex items-center justify-between bg-black/30 p-1.5 rounded border border-white/5">
@@ -333,7 +348,7 @@ export const DocumentLibrary = ({
                 <div key={year} className="space-y-0.5">
                    <div 
                       onClick={() => { toggleYear(year); setSelectedTreeNode({ year }); }}
-                      className={`flex items-center gap-1.5 px-2 py-1.5 rounded text-xs cursor-pointer transition-colors ${selectedTreeNode?.year === year && !selectedTreeNode?.month ? 'bg-indigo-500/20 text-indigo-300' : 'text-gray-400 hover:bg-white/5'}`}
+                      className={`flex items-center gap-1.5 pl-6 pr-2 py-1.5 rounded text-xs cursor-pointer transition-colors ${selectedTreeNode?.year === year && !selectedTreeNode?.month ? 'bg-indigo-500/20 text-indigo-300' : 'text-gray-400 hover:bg-white/5'}`}
                    >
                      {expandedYears[year] ? <ChevronDown className="w-3 h-3 shrink-0" /> : <ChevronRight className="w-3 h-3 shrink-0" />}
                      <Folder className="w-3.5 h-3.5 shrink-0" />
@@ -345,7 +360,7 @@ export const DocumentLibrary = ({
                         <div key={ymKey} className="space-y-0.5">
                           <div 
                              onClick={() => { toggleMonth(ymKey); setSelectedTreeNode({ year, month }); }}
-                             className={`flex items-center gap-1.5 pl-6 pr-2 py-1.5 rounded text-xs cursor-pointer transition-colors ${selectedTreeNode?.year === year && selectedTreeNode?.month === month && !selectedTreeNode?.day ? 'bg-indigo-500/20 text-indigo-300' : 'text-gray-400 hover:bg-white/5'}`}
+                             className={`flex items-center gap-1.5 pl-10 pr-2 py-1.5 rounded text-xs cursor-pointer transition-colors ${selectedTreeNode?.year === year && selectedTreeNode?.month === month && !selectedTreeNode?.day ? 'bg-indigo-500/20 text-indigo-300' : 'text-gray-400 hover:bg-white/5'}`}
                           >
                             {expandedMonths[ymKey] ? <ChevronDown className="w-3 h-3 shrink-0 opacity-70" /> : <ChevronRight className="w-3 h-3 shrink-0 opacity-70" />}
                             <Folder className="w-3.5 h-3.5 shrink-0 opacity-80" />
@@ -355,7 +370,7 @@ export const DocumentLibrary = ({
                             <div 
                                key={`${ymKey}-${day}`}
                                onClick={() => setSelectedTreeNode({ year, month, day })}
-                               className={`flex items-center gap-2 pl-11 pr-2 py-1.5 rounded text-xs cursor-pointer transition-colors ${selectedTreeNode?.year === year && selectedTreeNode?.month === month && selectedTreeNode?.day === day ? 'bg-indigo-500/20 text-indigo-300' : 'text-gray-400 hover:bg-white/5'}`}
+                               className={`flex items-center gap-2 pl-14 pr-2 py-1.5 rounded text-xs cursor-pointer transition-colors ${selectedTreeNode?.year === year && selectedTreeNode?.month === month && selectedTreeNode?.day === day ? 'bg-indigo-500/20 text-indigo-300' : 'text-gray-400 hover:bg-white/5'}`}
                             >
                               <Folder className="w-3.5 h-3.5 shrink-0 opacity-60" />
                               <span className="truncate opacity-60">{day}</span>
@@ -371,7 +386,7 @@ export const DocumentLibrary = ({
                 <div key={parentGroup} className="space-y-0.5">
                    <div 
                       onClick={() => toggleAIGroup(parentGroup)}
-                      className={`flex items-center gap-1.5 px-2 py-1.5 rounded text-xs cursor-pointer transition-colors text-gray-400 hover:bg-white/5`}
+                      className={`flex items-center gap-1.5 pl-6 pr-2 py-1.5 rounded text-xs cursor-pointer transition-colors text-gray-400 hover:bg-white/5`}
                    >
                      {expandedAIGroups[parentGroup] ? <ChevronDown className="w-3 h-3 shrink-0" /> : <ChevronRight className="w-3 h-3 shrink-0" />}
                      <Folder className="w-3.5 h-3.5 shrink-0" />
@@ -381,7 +396,7 @@ export const DocumentLibrary = ({
                       <div 
                          key={`${parentGroup}-${tag}`}
                          onClick={() => setSelectedTreeNode(tag)}
-                         className={`flex items-center gap-2 pl-7 pr-2 py-1.5 rounded text-xs cursor-pointer transition-colors ${selectedTreeNode === tag ? 'bg-indigo-500/20 text-indigo-300' : 'text-gray-400 hover:bg-white/5'}`}
+                         className={`flex items-center gap-2 pl-10 pr-2 py-1.5 rounded text-xs cursor-pointer transition-colors ${selectedTreeNode === tag ? 'bg-indigo-500/20 text-indigo-300' : 'text-gray-400 hover:bg-white/5'}`}
                       >
                         <Folder className="w-3.5 h-3.5 shrink-0 opacity-80" />
                         <span className="truncate opacity-80">{tag}</span>
@@ -394,7 +409,7 @@ export const DocumentLibrary = ({
                 <div 
                   key={node}
                   onClick={() => setSelectedTreeNode(node)}
-                  className={`flex items-center gap-2 px-2 py-1.5 rounded text-xs cursor-pointer transition-colors ${selectedTreeNode === node ? 'bg-indigo-500/20 text-indigo-300' : 'text-gray-400 hover:bg-white/5'}`}
+                  className={`flex items-center gap-2 pl-6 pr-2 py-1.5 rounded text-xs cursor-pointer transition-colors ${selectedTreeNode === node ? 'bg-indigo-500/20 text-indigo-300' : 'text-gray-400 hover:bg-white/5'}`}
                 >
                   <Folder className="w-3.5 h-3.5 shrink-0" />
                   <span className="truncate">{node}</span>
