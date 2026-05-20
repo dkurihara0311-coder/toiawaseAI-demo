@@ -115,12 +115,20 @@ export default function Dashboard() {
       } catch (e) { console.error(e); }
     }
     
-    // フェッチを開始
-    fetchDocs(initialSort);
-    fetchTags();
-    
-    // 設定復旧完了をマーク
-    setTimeout(() => setIsRestored(true), 800);
+    const initData = async () => {
+      try {
+        await axios.post(`${API_URL}/api/setup-demo`, {}, { timeout: 30000 });
+      } catch (e) { console.error("Setup demo failed or timeout", e); }
+      
+      // フェッチを開始
+      await fetchDocs(initialSort);
+      fetchTags();
+      
+      // 設定復旧完了をマーク
+      setTimeout(() => setIsRestored(true), 800);
+    };
+
+    initData();
   }, []);
 
   useEffect(() => {
@@ -136,7 +144,6 @@ export default function Dashboard() {
 
   // --- Effects: Data & UX ---
   useEffect(() => {
-    axios.post(`${API_URL}/api/setup-demo`).catch((e: any) => console.error(e));
 
     const handleDragEnter = (e: DragEvent) => {
       if (isHeaderDragging || !e.dataTransfer?.types.includes("Files")) return;
@@ -182,7 +189,7 @@ export default function Dashboard() {
   useEffect(() => {
     const isProcessing = docs.some(doc => doc.status === 'processing' || doc.status === 'uploaded');
     let intervalId: any = null;
-    if (isProcessing) intervalId = setInterval(() => fetchDocs(), 3000);
+    if (isProcessing) intervalId = setInterval(() => fetchDocs(undefined, true), 3000);
     return () => intervalId && clearInterval(intervalId);
   }, [docs]);
 
@@ -217,21 +224,23 @@ export default function Dashboard() {
     };
   }, [isResizing]);
 
-  // --- Actions ---
-  const fetchDocs = async (configs?: SortConfig[]) => {
-    setIsLoadingDocs(true); setFetchError(null);
+  const fetchDocs = async (configs?: SortConfig[], silent: boolean = false) => {
+    if (!silent) setIsLoadingDocs(true); 
+    if (!silent) setFetchError(null);
     try {
       // 渡された configs があればそれを、なければ最新の sortConfigs を使用
       const activeConfigs = configs || sortConfigs;
       const primary = activeConfigs.length > 0 ? activeConfigs[0] : null;
       const params = primary ? { sort_key: primary.key, sort_order: primary.order } : {};
       
-      const res = await axios.get(`${API_URL}/api/documents?t=${Date.now()}`, { params, timeout: 10000 });
+      const res = await axios.get(`${API_URL}/api/documents?t=${Date.now()}`, { params, timeout: 15000 });
       setDocs(res.data);
       fetchTags();
     } catch (e) {
-      setFetchError("サーバーに接続できません。バックエンドが起動しているか確認してください。");
-    } finally { setIsLoadingDocs(false); }
+      if (!silent) setFetchError("サーバーに接続できません。バックエンドが起動しているか確認してください。");
+    } finally { 
+      if (!silent) setIsLoadingDocs(false); 
+    }
   };
 
   const fetchTags = async () => {

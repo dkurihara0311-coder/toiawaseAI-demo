@@ -15,7 +15,7 @@ import models, schemas, database
 from database import engine, get_db, SessionLocal
 from services.document_service import analyze_document, reextract_document_tags
 from services.storage_service import storage_service
-from services.ai_service import get_embedding, generate_answer, analyze_query_and_filters
+from services.ai_service import get_embedding, generate_answer, analyze_query_and_filters, classify_tags_by_theme, classify_dynamic_tree_by_theme
 from sqlalchemy import or_
 
 app = FastAPI(title="TANK")
@@ -166,6 +166,42 @@ def list_tags(db: Session = Depends(get_db)):
             tags = [t.strip() for t in clean_row.split(",") if t.strip()]
             all_tags.update(tags)
     return sorted(list(all_tags))
+
+@app.get("/api/tags/classify")
+def classify_tags(theme: str, db: Session = Depends(get_db)):
+    results = db.query(models.Document.tags).filter(models.Document.tags != None).all()
+    all_tags = set()
+    for row in results:
+        if row[0]:
+            clean_row = row[0].replace("{", "").replace("}", "").replace("[", "").replace("]", "")
+            tags = [t.strip() for t in clean_row.split(",") if t.strip()]
+            all_tags.update(tags)
+    
+    unique_tags = sorted(list(all_tags))
+    if not unique_tags:
+        return {"theme": theme, "tags": []}
+        
+    extracted_tags = classify_tags_by_theme(theme, unique_tags)
+    return {"theme": theme, "tags": extracted_tags}
+
+@app.get("/api/tree/classify")
+def classify_dynamic_tree(theme: str, db: Session = Depends(get_db)):
+    from sqlalchemy import inspect
+    mapper = inspect(models.Document)
+    available_columns = [column.key for column in mapper.columns]
+    
+    results = db.query(models.Document.tags).filter(models.Document.tags != None).all()
+    all_tags = set()
+    for row in results:
+        if row[0]:
+            clean_row = row[0].replace("{", "").replace("}", "").replace("[", "").replace("]", "")
+            tags = [t.strip() for t in clean_row.split(",") if t.strip()]
+            all_tags.update(tags)
+    
+    unique_tags = sorted(list(all_tags))
+    
+    tree_config = classify_dynamic_tree_by_theme(theme, available_columns, unique_tags)
+    return tree_config
 
 @app.get("/api/organizations")
 @app.get("/organizations")

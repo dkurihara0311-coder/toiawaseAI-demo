@@ -210,3 +210,113 @@ def generate_answer(question: str, context: str, history: list = None):
         return response.text if response else "応答を生成できませんでした。"
     except:
         return "混雑中。時間を置いて再試行してください。"
+
+def classify_tags_by_theme(theme: str, all_tags: list) -> list:
+    """AIを使用して、入力されたテーマに合致するタグを既存タグリストから推論・抽出する"""
+    if not all_tags:
+        return []
+        
+    model = get_model()
+    
+    tags_str = ", ".join(all_tags)
+    
+    prompt = f"""
+あなたは超一流のデータ分類スペシャリストです。
+以下の「すべての属性タグ」のリストの中から、ユーザーが指定した「テーマ」に属する、あるいは関連性が高いと思われるタグを推論し、すべて抽出してください。
+
+【テーマ】
+{theme}
+
+【すべての属性タグ】
+{tags_str}
+
+【出力形式】
+抽出したタグの文字列のみを含むJSONの配列（リスト）形式でのみ出力してください。
+例: ["タグA", "タグB"]
+該当するタグが1つもない場合は空の配列 [] を出力してください。
+余計な解説、バッククォート、マークダウン表記は一切含めないでください。
+"""
+    try:
+        response = safe_generate_with_retry(model, prompt)
+        
+        # 応答からJSON配列部分を抽出
+        json_match = re.search(r'\[.*\]', response.text, re.DOTALL)
+        if json_match:
+            extracted_tags = json.loads(json_match.group())
+            if isinstance(extracted_tags, list):
+                return [str(t).strip() for t in extracted_tags if t]
+                
+        # JSON抽出に失敗した場合は、フォールバック処理
+        text_content = response.text.replace('[', '').replace(']', '').replace('"', '').replace("'", "")
+        return [t.strip() for t in text_content.split(',') if t.strip()]
+    except Exception as e:
+        print(f"Error in classify_tags_by_theme: {e}")
+        return []
+
+def classify_dynamic_tree_by_theme(theme: str, available_columns: list, all_tags: list) -> dict:
+    """AIを使用して、入力されたテーマに合致する分類軸（カラム）と処理方法を推論する"""
+    model = get_model()
+    
+    columns_str = ", ".join(available_columns) if available_columns else "なし"
+    tags_str = ", ".join(all_tags) if all_tags else "なし"
+    
+    prompt = f"""
+あなたは超一流のデータアーキテクト兼データ分類スペシャリストです。
+ユーザーが指定した「テーマ」に基づいて、ドキュメントのリストを階層ツリーで分類するための最適な【ターゲットカラム】と【グループ化の手法】を推論してください。
+
+【ユーザー入力テーマ】
+{theme}
+
+【現在利用可能なカラム（メタデータフィールド）一覧】
+{columns_str}
+
+【既存の属性タグの一部（参考）】
+{tags_str}
+
+以下のJSONフォーマットでのみ出力してください。
+{{
+  "target_column": "選ばれたカラム名 (例: created_at, tags, customer_name, file_name など)",
+  "grouping_type": "date" または "extension" または "exact_match" または "comma_separated" または "ai_extracted",
+  "extracted_tree": {{
+    "大分類（親カテゴリ）1": ["テーマに合致するタグ1", "テーマに合致するタグ2"],
+    "大分類（親カテゴリ）2": ["テーマに合致するタグ3"]
+  }}
+}}
+
+【各項目について】
+- target_column: 利用可能なカラム一覧の中から、テーマに最も適した1つのカラム名を正確に選んでください。
+- grouping_type: 以下のいずれかを選んでください。
+  - "date": target_columnが日付（created_atなど）の場合
+  - "extension": target_columnがファイル名（file_nameなど）で、そこから拡張子を抽出して分類すべき場合
+  - "exact_match": カラムの値そのもので単純にグループ化する場合
+  - "comma_separated": target_columnがカンマ区切りの文字列（customer_nameなど）の場合
+  - "ai_extracted": target_columnがtags等で、既存の属性タグリストの中からテーマに関連するタグを抽出して分類する場合
+- extracted_tree: grouping_type が "ai_extracted" の場合のみ出力してください。既存のタグリストから【テーマに厳密に関連するタグのみ】を抽出し、それらをあなたが考えた適切な「親カテゴリ名」でグループ化してJSONオブジェクト（辞書）として出力してください。テーマに少しでも無関係なタグは絶対に含めないでください。ai_extracted 以外の場合は空のオブジェクト {{}} にしてください。
+
+余計な解説やマークダウン表記は一切含めず、純粋なJSON文字列のみを出力してください。
+"""
+    try:
+        response = safe_generate_with_retry(model, prompt)
+        
+        # 応答からJSON部分を抽出
+        json_match = re.search(r'\{.*\}', response.text, re.DOTALL)
+        if json_match:
+            result = json.loads(json_match.group())
+            return {
+                "target_column": result.get("target_column", "tags"),
+                "grouping_type": result.get("grouping_type", "ai_extracted"),
+                "extracted_tree": result.get("extracted_tree", {})
+            }
+            
+        return {
+            "target_column": "tags",
+            "grouping_type": "ai_extracted",
+            "extracted_tree": {}
+        }
+    except Exception as e:
+        print(f"Error in classify_dynamic_tree_by_theme: {e}")
+        return {
+            "target_column": "tags",
+            "grouping_type": "ai_extracted",
+            "extracted_tree": {}
+        }
