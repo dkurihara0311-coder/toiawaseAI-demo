@@ -55,7 +55,7 @@ export default function Dashboard() {
     const baseUrl = (typeof process !== "undefined" && process.env?.NEXT_PUBLIC_API_URL) 
       ? process.env.NEXT_PUBLIC_API_URL 
       : (typeof window !== "undefined" 
-          ? (window.location.hostname === "localhost" ? "http://localhost:8000" : "") 
+          ? `${window.location.protocol}//${window.location.hostname}:${window.location.hostname === "localhost" ? "8000" : "10000"}`
           : "http://localhost:8000");
     return baseUrl ? baseUrl.replace(/\/$/, "") : "";
   })();
