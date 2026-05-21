@@ -142,6 +142,34 @@ def extract_doc_metadata(text: str):
             
         doc_type = metadata.get("document_type", "未分類")
         custom_attrs["文書種類"] = doc_type
+        
+        # 金額系項目のカンマ編集処理
+        amount_pattern = re.compile(r'(金額|税|単価|価格|小計|合計|総額|料金|費用|代金|残高|額)')
+        for k, v in custom_attrs.items():
+            if amount_pattern.search(k) and v:
+                val_str = str(v)
+                # 既存のカンマを削除
+                clean_val = re.sub(r'(\d),(\d)', r'\1\2', val_str)
+                
+                # 安全なカンマ編集関数（年号、電話番号、型番などをスキップ）
+                def safe_format(match):
+                    num_str = match.group()
+                    start = match.start()
+                    end = match.end()
+                    
+                    prev_char = clean_val[start - 1] if start > 0 else ''
+                    next_char = clean_val[end] if end < len(clean_val) else ''
+                    
+                    if re.match(r'[年月日時分秒回番号]', next_char): return num_str
+                    if prev_char == '-' or next_char == '-': return num_str
+                    if prev_char == '.' or next_char == '.': return num_str
+                    if re.match(r'[a-zA-Z]', prev_char) or re.match(r'[a-zA-Z]', next_char): return num_str
+                    if num_str.startswith('0') and len(num_str) > 1: return num_str
+                    
+                    return f"{int(num_str):,}"
+                    
+                formatted_val = re.sub(r'\d+', safe_format, clean_val)
+                custom_attrs[k] = formatted_val
 
         return {
             "document_type": doc_type,

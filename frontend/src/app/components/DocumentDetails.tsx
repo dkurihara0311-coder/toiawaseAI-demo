@@ -122,17 +122,10 @@ export const DocumentDetails = ({
               <div className="grid grid-cols-1 gap-2">
                 {Object.entries(doc.custom_attributes).map(([key, value], i) => {
                   if (!value || key === "文書種類" || key === "document_type") return null;
-                  
-                  let displayValue = String(value);
-                  const isAmountKey = /(金額|税|単価|価格|小計|合計|総額|料金|費用|代金|残高|額)/.test(key);
-                  if (isAmountKey) {
-                    displayValue = displayValue.replace(/,/g, '').replace(/\d+/g, (match) => Number(match).toLocaleString());
-                  }
-
                   return (
                     <div key={i} className="flex flex-col bg-white/5 rounded px-3 py-1.5 border border-white/10">
                       <span className="text-[10px] text-gray-400 font-bold mb-0.5">{key}</span>
-                      <span className="text-xs font-medium text-gray-200 truncate" title={displayValue}>{displayValue}</span>
+                      <span className="text-xs font-medium text-gray-200 truncate" title={String(value)}>{String(value)}</span>
                     </div>
                   );
                 })}
