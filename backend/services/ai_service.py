@@ -84,10 +84,15 @@ def extract_doc_metadata(text: str):
 あなたは超一流のドキュメントアナリストです。資料を精査し、以下の情報を出力してください。
 
 1. 【JSONメタデータ】
-資料の種類、組織名、短い概要、タグをJSONで出力してください。
+資料の種類、組織名、短い概要、タグ、および固有属性をJSONで出力してください。出力は必ず ```json と ``` で囲んでください。
 組織名（関連企業）が複数ある場合はカンマ区切りの文字列として "customer_name": "企業A, 企業B" の形式で含めてください。
 タグは資料の内容を表すキーワードを複数、カンマ区切りの文字列として "tags": "タグ1, タグ2" の形式で含めてください。
-表記ゆれを防ぐため、可能な限り以下の標準的なタグ名を使用してください：見積書, 要件定義書, 契約書, 提案書, 議事録, 請求書, マニュアル, 設計書, 報告書。もしこれらに該当しない場合は、内容に最も適した分かりやすいタグを独自に生成してかまいません。
+
+さらに、以下のキーを必ず含めてください。
+- "document_type": 資料の分類（例：見積書, 要件定義書, 契約書, 提案書, 議事録, 請求書, マニュアル, 設計書, 報告書, 社内申請書など。内容に最も適した分かりやすい文書種類を一つ指定）
+- "custom_attributes": 判定した文書種類に特有の「固有属性」を抽出したJSONオブジェクト。
+  （例：見積書なら {{"金額": "100000", "期限": "2024-06-30"}}、契約書なら {{"契約日": "2024-01-01", "相手先": "株式会社A"}} のように、あなたがその文書種類に必要だと考える項目を自律的に抽出してください。
+  【重要ルール】抽出結果の分類を統一するため、「有効期限」「提出期限」「契約期限」などはすべて「期限」というキーに統一し、「見積金額」「請求金額」「契約金額」などはすべて「金額」というキーに統一してください。値が存在しない場合は空文字にしてください）
 
 2. 【資料の章立て】
 主要な章（見出し）を抽出。
@@ -105,13 +110,24 @@ def extract_doc_metadata(text: str):
         full_output = response.text
         
         # JSON部分
-        metadata = {"document_type": "未分類", "customer_name": "未抽出", "summary": "", "tags": "資料"}
+        metadata = {"document_type": "未分類", "customer_name": "未抽出", "summary": "", "tags": "資料", "custom_attributes": {}}
         try:
-            json_match = re.search(r'\{.*\}', full_output, re.DOTALL)
+            json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', full_output, re.DOTALL)
             if json_match:
-                metadata = json.loads(json_match.group())
-        except:
-            pass
+                parsed = json.loads(json_match.group(1))
+                metadata.update(parsed)
+            else:
+                # Fallback: try to find something that looks like JSON at the beginning
+                json_match = re.search(r'\{[^{]*"document_type".*?\}', full_output, re.DOTALL)
+                if json_match:
+                    try:
+                        # Extract from the first { to the last } in the matched string
+                        fallback_str = full_output[full_output.find('{'):full_output.rfind('}')+1]
+                        metadata.update(json.loads(fallback_str))
+                    except:
+                        pass
+        except Exception as parse_err:
+            print(f"JSON Parse error: {parse_err}")
             
         # タグのクリーンアップ: {} や [] などの記号が混入する場合があるため除去
         raw_tags = metadata.get("tags", "資料")
@@ -120,12 +136,20 @@ def extract_doc_metadata(text: str):
         
         clean_tags = str(raw_tags).replace("{", "").replace("}", "").replace("[", "").replace("]", "").strip()
             
+        custom_attrs = metadata.get("custom_attributes", {})
+        if not isinstance(custom_attrs, dict):
+            custom_attrs = {}
+            
+        doc_type = metadata.get("document_type", "未分類")
+        custom_attrs["文書種類"] = doc_type
+
         return {
-            "document_type": metadata.get("document_type", "未分類"),
+            "document_type": doc_type,
             "customer_name": metadata.get("customer_name", "未抽出"),
             "summary": metadata.get("summary", ""),
             "content_report": full_output,
-            "tags": clean_tags
+            "tags": clean_tags,
+            "custom_attributes": custom_attrs
         }
     except Exception as e:
         print(f"Critical error in analysis: {e}")

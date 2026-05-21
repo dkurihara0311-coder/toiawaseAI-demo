@@ -135,18 +135,6 @@ export default function Dashboard() {
     };
   }, []);
 
-  const isInitialMount = useRef(true);
-
-  useEffect(() => {
-    if (isInitialMount.current) {
-      isInitialMount.current = false;
-      return;
-    }
-    if (sortConfigs.length > 0) {
-      fetchDocs();
-    }
-  }, [sortConfigs]);
-
   useEffect(() => {
     if (isRestored) {
       localStorage.setItem("tank_sidebar_width", sidebarWidth.toString());
@@ -354,11 +342,14 @@ export default function Dashboard() {
   };
 
   const handleSort = (key: SortConfig["key"], label: string) => {
-    setSortConfigs(prev => {
-      const isFirst = prev.length > 0 && prev[0].key === key;
-      if (isFirst) return [{ ...prev[0], order: prev[0].order === "asc" ? "desc" : "asc" }, ...prev.slice(1)];
-      return [{ key, label, order: (key === "created_at" ? "desc" : "asc") }, ...prev.filter(c => c.key !== key)];
-    });
+    let newConfigs: SortConfig[];
+    if (sortConfigs.length > 0 && sortConfigs[0].key === key) {
+      newConfigs = [{ ...sortConfigs[0], order: sortConfigs[0].order === "asc" ? "desc" : "asc" }, ...sortConfigs.slice(1)];
+    } else {
+      newConfigs = [{ key, label, order: (key === "created_at" ? "desc" : "asc" as any) }, ...sortConfigs.filter(c => c.key !== key)];
+    }
+    setSortConfigs(newConfigs);
+    fetchDocs(newConfigs);
   };
 
   return (

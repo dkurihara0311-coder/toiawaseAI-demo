@@ -115,6 +115,24 @@ export const DocumentDetails = ({
               <div className="text-sm font-medium text-gray-500 italic">なし</div>
             )}
           </div>
+          
+          {doc.custom_attributes && Object.keys(doc.custom_attributes).length > 0 && (
+            <div>
+              <div className="text-[10px] text-gray-500 uppercase font-bold mb-1 mt-4">固有属性</div>
+              <div className="grid grid-cols-1 gap-2">
+                {Object.entries(doc.custom_attributes).map(([key, value], i) => {
+                  if (!value || key === "文書種類" || key === "document_type") return null;
+                  return (
+                    <div key={i} className="flex flex-col bg-white/5 rounded px-3 py-1.5 border border-white/10">
+                      <span className="text-[10px] text-gray-400 font-bold mb-0.5">{key}</span>
+                      <span className="text-xs font-medium text-gray-200 truncate" title={String(value)}>{String(value)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           <div>
             <div className="text-[10px] text-gray-500 uppercase font-bold mb-1">アップロード日時</div>
             <div className="text-sm font-medium text-gray-200">{new Date(doc.created_at).toLocaleString()}</div>

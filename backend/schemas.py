@@ -25,6 +25,7 @@ class Document(BaseModel):
     updated_at: datetime
     tags: Optional[str] = None
     original_id: Optional[UUID] = None
+    custom_attributes: Optional[dict] = None
 
     class Config:
         from_attributes = True

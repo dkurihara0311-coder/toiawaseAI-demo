@@ -8,6 +8,8 @@ export interface Document {
   file_size?: number;
   summary?: string;
   tags?: string;
+  document_type?: string;
+  custom_attributes?: Record<string, string>;
 }
 
 export interface Message {

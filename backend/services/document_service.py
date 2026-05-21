@@ -128,12 +128,12 @@ def analyze_document(document_id: str, db: Session):
             
             doc.document_type = metadata.get("document_type", "未分類")
             doc.customer_name = metadata.get("customer_name", "")
-            # 保存時はJSON形式で、短い概要と詳細レポートの両方を保持
             doc.summary = json.dumps({
                 "brief": metadata.get("summary", ""),
                 "detailed": metadata.get("content_report", "")
             }, ensure_ascii=False)
             doc.tags = metadata.get("tags", "")
+            doc.custom_attributes = metadata.get("custom_attributes", {})
             db.commit()
 
         doc.status = "completed"
@@ -232,6 +232,7 @@ def reextract_document_tags(document_id: str, db: Session):
                 "detailed": metadata.get("content_report", "")
             }, ensure_ascii=False)
             doc.tags = metadata.get("tags", "")
+            doc.custom_attributes = metadata.get("custom_attributes", {})
             
         doc.status = "completed"
         db.commit()

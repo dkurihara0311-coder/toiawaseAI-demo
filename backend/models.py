@@ -27,6 +27,7 @@ class Document(Base):
     file_size = Column(Integer, default=0)
     summary = Column(Text)
     tags = Column(String)
+    custom_attributes = Column(JSON, default=dict)
 
 class DocumentChunk(Base):
     __tablename__ = "document_chunks"
