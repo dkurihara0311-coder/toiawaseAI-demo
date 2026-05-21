@@ -183,7 +183,8 @@ export const DocumentLibrary = ({
       const attrs = doc.custom_attributes || {};
       Object.entries(attrs).forEach(([k, v]) => {
         if (!v || k === "文書種類" || k === "document_type") return;
-        if (k.includes("金額")) {
+        const isAmountKey = /(金額|税|単価|価格|小計|合計|総額|料金|費用|代金|残高|額)/.test(k);
+        if (isAmountKey) {
           const numStr = String(v).replace(/[,¥円\s]/g, '');
           const num = parseFloat(numStr);
           if (!isNaN(num)) {
@@ -257,7 +258,8 @@ export const DocumentLibrary = ({
           }
         }
         
-        if (!isDate && k.includes("金額")) {
+        const isAmountKey = /(金額|税|単価|価格|小計|合計|総額|料金|費用|代金|残高|額)/.test(k);
+        if (!isDate && isAmountKey) {
           const numStr = valStr.replace(/[,¥円\s]/g, '');
           const num = parseFloat(numStr);
           if (!isNaN(num)) {
