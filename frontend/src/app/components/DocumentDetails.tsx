@@ -59,100 +59,103 @@ export const DocumentDetails = ({
         </button>
       </div>
       
-      {/* メインスクロールエリア（画面が小さすぎる場合は全体がスクロール） */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar px-8 pb-4 flex flex-col gap-6">
-        
-        {/* 上部パネル（属性情報）- 内部スクロール */}
-        <div className="glass-panel flex flex-col shrink min-h-[300px]" style={{ maxHeight: '65vh' }}>
-          <div className="p-6 overflow-y-auto custom-scrollbar h-full flex flex-col">
-            <div className="flex items-center gap-4 mb-4 shrink-0">
-              <div className="p-3 bg-indigo-500/20 rounded-2xl">
-                <FileText className="w-8 h-8 text-indigo-400" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="font-bold truncate text-lg text-white" title={doc.file_name}>{doc.file_name}</div>
-                <div className="text-[10px] text-gray-500 uppercase tracking-widest mt-1 font-bold">Status: {doc.status}</div>
-                
-                <div className="flex flex-wrap gap-2 mt-4">
-                  <button 
-                    onClick={() => onDownload(doc.id, 'original')}
-                    className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-xs font-bold transition-all active:scale-95 shadow-lg shadow-indigo-500/20"
-                  >
-                    <FileText className="w-4 h-4" />
-                    ダウンロード
-                  </button>
-                  <button 
-                    onClick={() => onDownload(doc.id, 'md')}
-                    className="flex items-center gap-1.5 px-3 py-2 bg-purple-600 hover:bg-purple-500 rounded-lg text-xs font-bold transition-all active:scale-95 shadow-lg shadow-purple-500/20"
-                  >
-                    <FileText className="w-4 h-4" />
-                    要約ダウンロード
-                  </button>
+      {/* メインスクロールエリア */}
+      <div className="flex-1 overflow-y-auto custom-scrollbar px-8 pb-4">
+        {/* min-h-full で画面に余裕がある場合は全体に広がり、足りない場合は親がスクロールする */}
+        <div className="flex flex-col gap-6 min-h-full">
+          
+          {/* 上部パネル（属性情報）- 画面の余りをすべて吸収し、内部スクロール */}
+          <div className="glass-panel flex-1 flex flex-col min-h-[300px] overflow-hidden">
+            <div className="p-6 overflow-y-auto custom-scrollbar h-full flex flex-col">
+              <div className="flex items-center gap-4 mb-4 shrink-0">
+                <div className="p-3 bg-indigo-500/20 rounded-2xl">
+                  <FileText className="w-8 h-8 text-indigo-400" />
                 </div>
-              </div>
-            </div>
-            
-            <div className="space-y-4 pt-4 border-t border-white/5 font-sans shrink-0">
-              <div>
-                <div className="text-[10px] text-gray-500 uppercase font-bold mb-1">関連組織 / 名称</div>
-                <div className="text-sm font-medium text-gray-200">{doc.customer_name || '未抽出'}</div>
-              </div>
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-[10px] text-gray-500 uppercase font-bold">属性タグ</span>
-                  <button
-                    onClick={() => onReextractTags(doc.id)}
-                    disabled={doc.status === 'processing' || doc.status === 'uploaded'}
-                    className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition-all active:scale-95 shadow-lg shadow-emerald-500/20 disabled:opacity-50"
-                  >
-                    <RefreshCw className={`w-4 h-4 ${doc.status === 'processing' ? 'animate-spin' : ''}`} />
-                    再抽出
-                  </button>
-                </div>
-                {doc.tags ? (
-                  <div className="flex flex-wrap gap-1.5">
-                    {doc.tags.split(',').map((tag: string, i: number) => (
-                      <span key={i} className="px-2 py-0.5 bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 rounded-md text-[10px]">
-                        #{tag.trim()}
-                      </span>
-                    ))}
+                <div className="flex-1 min-w-0">
+                  <div className="font-bold truncate text-lg text-white" title={doc.file_name}>{doc.file_name}</div>
+                  <div className="text-[10px] text-gray-500 uppercase tracking-widest mt-1 font-bold">Status: {doc.status}</div>
+                  
+                  <div className="flex flex-wrap gap-2 mt-4">
+                    <button 
+                      onClick={() => onDownload(doc.id, 'original')}
+                      className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-xs font-bold transition-all active:scale-95 shadow-lg shadow-indigo-500/20"
+                    >
+                      <FileText className="w-4 h-4" />
+                      ダウンロード
+                    </button>
+                    <button 
+                      onClick={() => onDownload(doc.id, 'md')}
+                      className="flex items-center gap-1.5 px-3 py-2 bg-purple-600 hover:bg-purple-500 rounded-lg text-xs font-bold transition-all active:scale-95 shadow-lg shadow-purple-500/20"
+                    >
+                      <FileText className="w-4 h-4" />
+                      要約ダウンロード
+                    </button>
                   </div>
-                ) : (
-                  <div className="text-sm font-medium text-gray-500 italic">なし</div>
-                )}
+                </div>
               </div>
               
-              {doc.custom_attributes && Object.keys(doc.custom_attributes).length > 0 && (
+              <div className="space-y-4 pt-4 border-t border-white/5 font-sans shrink-0">
                 <div>
-                  <div className="text-[10px] text-gray-500 uppercase font-bold mb-1 mt-4">固有属性</div>
-                  <div className="grid grid-cols-1 gap-2">
-                    {Object.entries(doc.custom_attributes).map(([key, value], i) => {
-                      if (!value || key === "文書種類" || key === "document_type") return null;
-                      return (
-                        <div key={i} className="flex flex-col bg-white/5 rounded px-3 py-1.5 border border-white/10">
-                          <span className="text-[10px] text-gray-400 font-bold mb-0.5">{key}</span>
-                          <span className="text-xs font-medium text-gray-200 truncate" title={String(value)}>{String(value)}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
+                  <div className="text-[10px] text-gray-500 uppercase font-bold mb-1">関連組織 / 名称</div>
+                  <div className="text-sm font-medium text-gray-200">{doc.customer_name || '未抽出'}</div>
                 </div>
-              )}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] text-gray-500 uppercase font-bold">属性タグ</span>
+                    <button
+                      onClick={() => onReextractTags(doc.id)}
+                      disabled={doc.status === 'processing' || doc.status === 'uploaded'}
+                      className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition-all active:scale-95 shadow-lg shadow-emerald-500/20 disabled:opacity-50"
+                    >
+                      <RefreshCw className={`w-4 h-4 ${doc.status === 'processing' ? 'animate-spin' : ''}`} />
+                      再抽出
+                    </button>
+                  </div>
+                  {doc.tags ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {doc.tags.split(',').map((tag: string, i: number) => (
+                        <span key={i} className="px-2 py-0.5 bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 rounded-md text-[10px]">
+                          #{tag.trim()}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-sm font-medium text-gray-500 italic">なし</div>
+                  )}
+                </div>
+                
+                {doc.custom_attributes && Object.keys(doc.custom_attributes).length > 0 && (
+                  <div>
+                    <div className="text-[10px] text-gray-500 uppercase font-bold mb-1 mt-4">固有属性</div>
+                    <div className="grid grid-cols-1 gap-2">
+                      {Object.entries(doc.custom_attributes).map(([key, value], i) => {
+                        if (!value || key === "文書種類" || key === "document_type") return null;
+                        return (
+                          <div key={i} className="flex flex-col bg-white/5 rounded px-3 py-1.5 border border-white/10">
+                            <span className="text-[10px] text-gray-400 font-bold mb-0.5">{key}</span>
+                            <span className="text-xs font-medium text-gray-200 truncate" title={String(value)}>{String(value)}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
 
-              <div>
-                <div className="text-[10px] text-gray-500 uppercase font-bold mb-1">アップロード日時</div>
-                <div className="text-sm font-medium text-gray-200">{new Date(doc.created_at).toLocaleString()}</div>
+                <div>
+                  <div className="text-[10px] text-gray-500 uppercase font-bold mb-1">アップロード日時</div>
+                  <div className="text-sm font-medium text-gray-200">{new Date(doc.created_at).toLocaleString()}</div>
+                </div>
               </div>
             </div>
           </div>
-        </div>
 
-        {/* 下部パネル（概要）- 内部スクロール */}
-        <div className="glass-panel flex flex-col shrink min-h-[150px]" style={{ maxHeight: '35vh' }}>
-          <div className="p-6 font-mono text-[11px] leading-relaxed overflow-y-auto custom-scrollbar h-full">
-            <div className="text-indigo-400 mb-2 font-bold tracking-wider">【資料の概要】</div>
-            <div className="text-gray-300 leading-relaxed italic whitespace-pre-wrap">
-              {getSummaryContent()}
+          {/* 下部パネル（概要）- コンテンツ量に合わせて縮み、最大35vhで内部スクロール */}
+          <div className="glass-panel flex-none flex flex-col max-h-[35vh] overflow-hidden">
+            <div className="p-6 font-mono text-[11px] leading-relaxed overflow-y-auto custom-scrollbar h-full">
+              <div className="text-indigo-400 mb-2 font-bold tracking-wider">【資料の概要】</div>
+              <div className="text-gray-300 leading-relaxed italic whitespace-pre-wrap">
+                {getSummaryContent()}
+              </div>
             </div>
           </div>
         </div>
