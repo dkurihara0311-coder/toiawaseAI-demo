@@ -11,6 +11,7 @@ interface DocumentDetailsProps {
   onDelete: (id: string, e: React.MouseEvent) => void;
   onDownload: (id: string, type: 'original' | 'md') => void;
   onReextractTags: (id: string) => void;
+  onOpenReviewModal?: (id: string) => void;
 }
 
 export const DocumentDetails = ({
@@ -18,7 +19,8 @@ export const DocumentDetails = ({
   onClose,
   onDelete,
   onDownload,
-  onReextractTags
+  onReextractTags,
+  onOpenReviewModal
 }: DocumentDetailsProps) => {
   // 要約のパースロジックを完全復元
   const getSummaryContent = () => {
@@ -94,6 +96,20 @@ export const DocumentDetails = ({
                 </div>
               </div>
               
+              {doc.status === 'review_pending' && (
+                <div className="shrink-0 mb-4 bg-orange-500/10 border border-orange-500/30 rounded-xl p-4 flex flex-col items-center justify-center text-center">
+                  <div className="text-orange-400 font-bold text-sm mb-1">抽出結果の確認待ちです</div>
+                  <div className="text-gray-400 text-[10px] mb-3">AIによる新しい抽出結果を確認し、反映してください。</div>
+                  <button
+                    onClick={() => onOpenReviewModal && onOpenReviewModal(doc.id)}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-orange-500 hover:bg-orange-400 text-white rounded-lg text-sm font-bold transition-all shadow-lg shadow-orange-500/20 active:scale-95"
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                    抽出結果を確認・反映する
+                  </button>
+                </div>
+              )}
+              
               <div className="space-y-4 pt-4 border-t border-white/5 font-sans shrink-0">
                 <div>
                   <div className="text-[10px] text-gray-500 uppercase font-bold mb-1">関連組織 / 名称</div>
@@ -104,7 +120,7 @@ export const DocumentDetails = ({
                     <span className="text-[10px] text-gray-500 uppercase font-bold">属性タグ</span>
                     <button
                       onClick={() => onReextractTags(doc.id)}
-                      disabled={doc.status === 'processing' || doc.status === 'uploaded'}
+                      disabled={doc.status === 'processing' || doc.status === 'uploaded' || doc.status === 'review_pending'}
                       className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition-all active:scale-95 shadow-lg shadow-emerald-500/20 disabled:opacity-50"
                     >
                       <RefreshCw className={`w-4 h-4 ${doc.status === 'processing' ? 'animate-spin' : ''}`} />

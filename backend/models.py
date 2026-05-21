@@ -29,6 +29,15 @@ class Document(Base):
     tags = Column(String)
     custom_attributes = Column(JSON, default=dict)
 
+class ProposedDocumentMetadata(Base):
+    __tablename__ = "proposed_document_metadata"
+    document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True)
+    tags = Column(String)
+    custom_attributes = Column(JSON, default=dict)
+    summary = Column(Text)
+    customer_name = Column(String)
+    document_type = Column(String)
+
 class DocumentChunk(Base):
     __tablename__ = "document_chunks"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

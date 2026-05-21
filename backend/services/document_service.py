@@ -225,18 +225,27 @@ def reextract_document_tags(document_id: str, db: Session):
             print(f"DEBUG: Re-extracting metadata for {doc.file_name}...")
             metadata = extract_doc_metadata(full_text_sample)
             
-            doc.document_type = metadata.get("document_type", "未分類")
-            doc.customer_name = metadata.get("customer_name", "")
-            doc.summary = json.dumps({
-                "brief": metadata.get("summary", ""),
-                "detailed": metadata.get("content_report", "")
-            }, ensure_ascii=False)
-            doc.tags = metadata.get("tags", "")
-            doc.custom_attributes = metadata.get("custom_attributes", {})
+            # Check if there is already a proposed record and delete it if so
+            existing_proposed = db.query(models.ProposedDocumentMetadata).filter_by(document_id=doc.id).first()
+            if existing_proposed:
+                db.delete(existing_proposed)
+                
+            proposed_doc = models.ProposedDocumentMetadata(
+                document_id=doc.id,
+                document_type=metadata.get("document_type", "未分類"),
+                customer_name=metadata.get("customer_name", ""),
+                summary=json.dumps({
+                    "brief": metadata.get("summary", ""),
+                    "detailed": metadata.get("content_report", "")
+                }, ensure_ascii=False),
+                tags=metadata.get("tags", ""),
+                custom_attributes=metadata.get("custom_attributes", {})
+            )
+            db.add(proposed_doc)
             
-        doc.status = "completed"
+        doc.status = "review_pending"
         db.commit()
-        print(f"DEBUG: Tag re-extraction COMPLETED for {doc.file_name}")
+        print(f"DEBUG: Tag re-extraction COMPLETED for {doc.file_name}, waiting for review.")
     except Exception as e:
         print(f"Error re-extracting document tags {document_id}: {e}")
         db.rollback()

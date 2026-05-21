@@ -9,7 +9,8 @@ from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import text
-from typing import List
+from typing import List, Dict, Any
+from pydantic import BaseModel
 
 import models, schemas, database
 from database import engine, get_db, SessionLocal
@@ -402,3 +403,44 @@ async def delete_document(document_id: uuid.UUID, db: Session = Depends(get_db))
     db.delete(doc)
     db.commit()
     return {"message": "Document deleted successfully"}
+
+class CommitReextractRequest(BaseModel):
+    tags: str
+    custom_attributes: Dict[str, Any]
+
+@app.get("/api/documents/{document_id}/proposed-metadata")
+def get_proposed_metadata(document_id: uuid.UUID, db: Session = Depends(get_db)):
+    proposed = db.query(models.ProposedDocumentMetadata).filter(models.ProposedDocumentMetadata.document_id == document_id).first()
+    if not proposed:
+        raise HTTPException(status_code=404, detail="Proposed metadata not found")
+    
+    return {
+        "tags": proposed.tags,
+        "custom_attributes": proposed.custom_attributes,
+        "summary": proposed.summary,
+        "customer_name": proposed.customer_name,
+        "document_type": proposed.document_type
+    }
+
+@app.post("/api/documents/{document_id}/commit-reextract")
+def commit_reextract(document_id: uuid.UUID, payload: CommitReextractRequest, db: Session = Depends(get_db)):
+    doc = db.query(models.Document).filter(models.Document.id == document_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+        
+    proposed = db.query(models.ProposedDocumentMetadata).filter(models.ProposedDocumentMetadata.document_id == document_id).first()
+    
+    doc.tags = payload.tags
+    doc.custom_attributes = payload.custom_attributes
+    if proposed:
+        # ユーザーは概要や基本属性を選択しないため、提案側のものをそのまま上書きするかどうか。
+        # 固有属性とタグ以外は基本的に新しい抽出を採用する方針とします。
+        doc.summary = proposed.summary
+        doc.customer_name = proposed.customer_name
+        doc.document_type = proposed.document_type
+        db.delete(proposed)
+        
+    doc.status = "completed"
+    db.commit()
+    
+    return {"status": "completed"}

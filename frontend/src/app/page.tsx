@@ -11,6 +11,7 @@ import { DocumentLibrary } from "./components/DocumentLibrary";
 import { ChatPanel } from "./components/ChatPanel";
 import { UploadZone } from "./components/UploadZone";
 import { DocumentDetails } from "./components/DocumentDetails";
+import { ReextractReviewModal } from "./components/ReextractReviewModal";
 
 // Types
 import { Document, Message, SortConfig, ColumnConfig } from "./types";
@@ -37,6 +38,7 @@ export default function Dashboard() {
   const [isRestored, setIsRestored] = useState(false);
   const [isHeaderDragging, setIsHeaderDragging] = useState(false);
   const [sortConfigs, setSortConfigs] = useState<SortConfig[]>([]);
+  const [reviewModalDocId, setReviewModalDocId] = useState<string | null>(null);
 
   const DEFAULT_COLUMNS: ColumnConfig[] = [
     { key: "file_name", label: "名称", width: "w-80 flex-shrink-0" },
@@ -228,8 +230,8 @@ export default function Dashboard() {
     };
   }, [isResizing]);
 
-  const fetchDocs = async (configs?: SortConfig[], silent: boolean = false) => {
-    if (!silent) {
+  const fetchDocs = async (configs?: SortConfig[], silent: boolean = false, retryCount: number = 0) => {
+    if (!silent && retryCount === 0) {
       setIsLoadingDocs(true); 
       setFetchError(null);
     }
@@ -241,24 +243,34 @@ export default function Dashboard() {
       
       const res = await withTimeout(
         axios.get(`${API_URL}/api/documents?t=${Date.now()}`, { params }),
-        12000,
+        8000, // 初回などの遅延を考慮し少し短めに設定してリトライを回す
         "サーバーからの応答がタイムアウトしました。"
       );
       
       setDocs(res.data);
-      await fetchTags();
+      if (!silent) setIsLoadingDocs(false);
       
+      // データ取得後にタグも更新（非同期）
+      if (!silent && retryCount === 0) {
+        fetchTags();
+      }
     } catch (e: any) {
+      // バックエンドの起動遅延（コールドスタート）対策：2回までリトライ
+      if (retryCount < 2) {
+        console.warn(`fetchDocs failed, retrying... (${retryCount + 1}/2)`);
+        setTimeout(() => fetchDocs(configs, silent, retryCount + 1), 2000);
+        return;
+      }
+
       if (!silent) {
         if (e.message?.includes('タイムアウト') || e.message?.includes('timeout') || e.code === 'ECONNABORTED') {
-          setFetchError("サーバーからの応答がタイムアウトしました。再読み込みしてください。");
+          setFetchError("サーバーの起動に時間がかかっています。再読み込みしてください。");
         } else {
           setFetchError(`通信エラー: ${e.message || '詳細不明'}。バックエンドが起動しているか確認してください。`);
         }
+        setIsLoadingDocs(false);
       }
       console.error("fetchDocs error:", e);
-    } finally {
-      if (!silent) setIsLoadingDocs(false);
     }
   };
 
@@ -377,7 +389,7 @@ export default function Dashboard() {
 
         <DocumentLibrary 
           docs={docs} isLoading={isLoadingDocs} isMounted={isMounted} fetchError={fetchError}
-          onRefresh={() => { fetchDocs(); fetchTags(); }}
+          onRefresh={() => { fetchDocs(); }}
           selectedDoc={selectedDoc} onSelectDoc={(d: Document) => { setSelectedDoc(d); setShowDocPanel(true); }}
           tags={tags} selectedTag={selectedTag} onSelectTag={(t: string) => setSelectedTag(t)}
           orgs={orgs} selectedOrg={selectedOrg} onSelectOrg={(o: string) => setSelectedOrg(o)}
@@ -404,6 +416,7 @@ export default function Dashboard() {
             doc={selectedDoc} onClose={() => setShowDocPanel(false)}
             onDelete={deleteDoc} onDownload={downloadAction}
             onReextractTags={handleReextractTags}
+            onOpenReviewModal={(id) => setReviewModalDocId(id)}
           />
         ) : (
           <div className="w-[450px] h-full flex items-center justify-center text-gray-600 text-sm italic">
@@ -420,6 +433,16 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+
+      <ReextractReviewModal 
+        isOpen={!!reviewModalDocId}
+        doc={docs.find(d => d.id === reviewModalDocId)!}
+        onClose={() => setReviewModalDocId(null)}
+        onSuccess={() => {
+          fetchDocs();
+          fetchTags();
+        }}
+      />
     </div>
   );
 }

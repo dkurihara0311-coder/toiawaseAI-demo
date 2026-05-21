@@ -807,6 +807,8 @@ export const DocumentLibrary = ({
                       <FileText className="w-5 h-5 text-green-500" />
                     ) : doc.status === 'failed' ? (
                       <X className="w-5 h-5 text-red-500" strokeWidth={3} />
+                    ) : doc.status === 'review_pending' ? (
+                      <span className="text-orange-500 font-black text-2xl drop-shadow-[0_0_2px_rgba(249,115,22,0.8)] select-none" title="タグ確認待ち">!</span>
                     ) : (
                       <RefreshCw className="w-4 h-4 text-gray-500" />
                     )}
