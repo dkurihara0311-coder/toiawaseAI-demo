@@ -46,16 +46,33 @@ export const MetadataEditModal = ({ isOpen, doc, onClose, onSuccess }: MetadataE
 
   if (!isOpen) return null;
 
+  const formatDateStr = (val: string): string => {
+    const match1 = val.match(/^(\d{4})[-\/年\.・\s]+(\d{1,2})[-\/月\.・\s]+(\d{1,2})[日\s]*$/);
+    if (match1) {
+      return `${match1[1]}-${match1[2].padStart(2, '0')}-${match1[3].padStart(2, '0')}`;
+    }
+    const match2 = val.match(/^(\d{4})[-\/年\.・\s]+(\d{1,2})[-\/月\.・\s]*(月末|末日)[日\s]*$/);
+    if (match2) {
+      const y = parseInt(match2[1], 10);
+      const m = parseInt(match2[2], 10);
+      if (m >= 1 && m <= 12) {
+        const lastDay = new Date(y, m, 0).getDate();
+        return `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+      }
+    }
+    return val;
+  };
+
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      const cleanTags = tags.map(t => t.trim()).filter(t => t);
+      const cleanTags = tags.map(t => formatDateStr(t.trim())).filter(t => t);
       const tagsString = cleanTags.join(", ");
       
       const attributesObj: Record<string, string> = {};
       customAttrs.forEach(attr => {
         if (attr.key.trim()) {
-          attributesObj[attr.key.trim()] = attr.value.trim();
+          attributesObj[attr.key.trim()] = formatDateStr(attr.value.trim());
         }
       });
 
