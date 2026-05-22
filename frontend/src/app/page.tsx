@@ -407,6 +407,13 @@ export default function Dashboard() {
         messages={messages} input={input} setInput={setInput} onSend={handleSend}
         isProcessing={isProcessingChat} showDocPanel={showDocPanel} setShowDocPanel={setShowDocPanel}
         chatEndRef={chatEndRef}
+        onReferenceClick={(docId) => {
+          const doc = docs.find(d => d.id === docId);
+          if (doc) {
+            setSelectedDoc(doc);
+            setShowDocPanel(true);
+          }
+        }}
       />
 
       {/* Right Panel: Doc Details (Drawer) */}
@@ -417,6 +424,10 @@ export default function Dashboard() {
             onDelete={deleteDoc} onDownload={downloadAction}
             onReextractTags={handleReextractTags}
             onOpenReviewModal={(id) => setReviewModalDocId(id)}
+            onUpdateSuccess={() => {
+              fetchDocs();
+              fetchTags();
+            }}
           />
         ) : (
           <div className="w-[450px] h-full flex items-center justify-center text-gray-600 text-sm italic">

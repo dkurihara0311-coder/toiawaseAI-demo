@@ -305,12 +305,12 @@ def classify_tags_by_theme(theme: str, all_tags: list) -> list:
         print(f"Error in classify_tags_by_theme: {e}")
         return []
 
-def classify_dynamic_tree_by_theme(theme: str, available_columns: list, all_tags: list) -> dict:
+def classify_dynamic_tree_by_theme(theme: str, available_columns: list, all_attributes: list) -> dict:
     """AIを使用して、入力されたテーマに合致する分類軸（カラム）と処理方法を推論する"""
     model = get_model()
     
     columns_str = ", ".join(available_columns) if available_columns else "なし"
-    tags_str = ", ".join(all_tags) if all_tags else "なし"
+    attrs_str = ", ".join(all_attributes) if all_attributes else "なし"
     
     prompt = f"""
 あなたは超一流のデータアーキテクト兼データ分類スペシャリストです。
@@ -322,16 +322,16 @@ def classify_dynamic_tree_by_theme(theme: str, available_columns: list, all_tags
 【現在利用可能なカラム（メタデータフィールド）一覧】
 {columns_str}
 
-【既存の属性タグの一部（参考）】
-{tags_str}
+【既存の固有属性の一部（参考）】
+{attrs_str}
 
 以下のJSONフォーマットでのみ出力してください。
 {{
-  "target_column": "選ばれたカラム名 (例: created_at, tags, customer_name, file_name など)",
+  "target_column": "選ばれたカラム名 (例: created_at, custom_attributes, customer_name, file_name など)",
   "grouping_type": "date" または "extension" または "exact_match" または "comma_separated" または "ai_extracted",
   "extracted_tree": {{
-    "大分類（親カテゴリ）1": ["テーマに合致するタグ1", "テーマに合致するタグ2"],
-    "大分類（親カテゴリ）2": ["テーマに合致するタグ3"]
+    "元の属性のキー名 (例: 金額)": ["属性の値1 (例: 100000)", "属性の値2"],
+    "元の属性のキー名 (例: 期限)": ["属性の値3"]
   }}
 }}
 
@@ -342,8 +342,8 @@ def classify_dynamic_tree_by_theme(theme: str, available_columns: list, all_tags
   - "extension": target_columnがファイル名（file_nameなど）で、そこから拡張子を抽出して分類すべき場合
   - "exact_match": カラムの値そのもので単純にグループ化する場合
   - "comma_separated": target_columnがカンマ区切りの文字列（customer_nameなど）の場合
-  - "ai_extracted": target_columnがtags等で、既存の属性タグリストの中からテーマに関連するタグを抽出して分類する場合
-- extracted_tree: grouping_type が "ai_extracted" の場合のみ出力してください。既存のタグリストから【テーマに厳密に関連するタグのみ】を抽出し、それらをあなたが考えた適切な「親カテゴリ名」でグループ化してJSONオブジェクト（辞書）として出力してください。テーマに少しでも無関係なタグは絶対に含めないでください。ai_extracted 以外の場合は空のオブジェクト {{}} にしてください。
+  - "ai_extracted": target_columnがcustom_attributes等で、既存の固有属性リストの中からテーマに関連する属性を抽出して分類する場合
+- extracted_tree: grouping_type が "ai_extracted" の場合のみ出力してください。既存の固有属性リスト（"キー: 値"の形式）から【テーマに関連する属性のみ】を抽出し、AIが勝手に新しいカテゴリ名を作るのではなく、必ず元の「キー」を親カテゴリとし、その「値」のリストを子要素としてJSONオブジェクト（辞書）として出力してください。テーマに少しでも無関係な属性は絶対に含めないでください。ai_extracted 以外の場合は空のオブジェクト {{}} にしてください。
 
 余計な解説やマークダウン表記は一切含めず、純粋なJSON文字列のみを出力してください。
 """
@@ -355,20 +355,20 @@ def classify_dynamic_tree_by_theme(theme: str, available_columns: list, all_tags
         if json_match:
             result = json.loads(json_match.group())
             return {
-                "target_column": result.get("target_column", "tags"),
+                "target_column": result.get("target_column", "custom_attributes"),
                 "grouping_type": result.get("grouping_type", "ai_extracted"),
                 "extracted_tree": result.get("extracted_tree", {})
             }
             
         return {
-            "target_column": "tags",
+            "target_column": "custom_attributes",
             "grouping_type": "ai_extracted",
             "extracted_tree": {}
         }
     except Exception as e:
         print(f"Error in classify_dynamic_tree_by_theme: {e}")
         return {
-            "target_column": "tags",
+            "target_column": "custom_attributes",
             "grouping_type": "ai_extracted",
             "extracted_tree": {}
         }

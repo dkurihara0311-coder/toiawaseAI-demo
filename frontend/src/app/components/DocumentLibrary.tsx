@@ -462,8 +462,24 @@ export const DocumentLibrary = ({
       return ext === selectedTreeNode;
     }
 
-    if (treeConfig.grouping_type === "comma_separated" || treeConfig.grouping_type === "ai_extracted") {
-      const list = val.split(',').map(v => v.trim());
+    if (treeConfig.grouping_type === "ai_extracted") {
+      if (treeConfig.target_column === "custom_attributes") {
+        const attrs = doc.custom_attributes || {};
+        if (selectedTreeNode && typeof selectedTreeNode === 'object' && selectedTreeNode.parentGroup && selectedTreeNode.tag) {
+           return String(attrs[selectedTreeNode.parentGroup] || "").trim() === String(selectedTreeNode.tag).trim();
+        } else {
+           const attrList = Object.entries(attrs).filter(([_, v]) => v).map(([k, v]) => `${k}: ${v}`);
+           return attrList.includes(selectedTreeNode as string);
+        }
+      } else {
+        const list = (val as any || "").toString().split(',').map((v: string) => v.trim());
+        const searchTag = typeof selectedTreeNode === 'object' ? selectedTreeNode.tag : selectedTreeNode;
+        return list.includes(searchTag as string);
+      }
+    }
+
+    if (treeConfig.grouping_type === "comma_separated") {
+      const list = (val as any || "").toString().split(',').map((v: string) => v.trim());
       return list.includes(selectedTreeNode);
     }
 
@@ -660,16 +676,19 @@ export const DocumentLibrary = ({
                      <Folder className="w-3.5 h-3.5 shrink-0" />
                      <span className="truncate font-bold text-indigo-300">{parentGroup}</span>
                    </div>
-                   {expandedAIGroups[parentGroup] && tagsArray.map(tag => (
+                   {expandedAIGroups[parentGroup] && tagsArray.map(tag => {
+                      const isSelected = selectedTreeNode?.parentGroup === parentGroup && selectedTreeNode?.tag === tag || selectedTreeNode === tag;
+                      return (
                       <div 
                          key={`${parentGroup}-${tag}`}
-                         onClick={() => setSelectedTreeNode(tag)}
-                         className={`flex items-center gap-2 pl-10 pr-2 py-1.5 rounded text-xs cursor-pointer transition-colors ${selectedTreeNode === tag ? 'bg-indigo-500/20 text-indigo-300' : 'text-gray-400 hover:bg-white/5'}`}
+                         onClick={() => setSelectedTreeNode({ parentGroup, tag })}
+                         className={`flex items-center gap-1.5 pl-10 pr-2 py-1.5 rounded text-xs cursor-pointer transition-colors ${isSelected ? 'bg-indigo-500/20 text-indigo-300' : 'text-gray-400 hover:bg-white/5'}`}
                       >
+                        <div className="w-3 h-3 shrink-0" />
                         <Folder className="w-3.5 h-3.5 shrink-0 opacity-80" />
                         <span className="truncate opacity-80">{tag}</span>
                       </div>
-                   ))}
+                   )})}
                 </div>
              ))
           ) : (

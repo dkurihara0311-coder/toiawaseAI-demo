@@ -13,6 +13,7 @@ interface ChatPanelProps {
   showDocPanel: boolean;
   setShowDocPanel: (show: boolean) => void;
   chatEndRef: any;
+  onReferenceClick?: (docId: string) => void;
 }
 
 export const ChatPanel = ({
@@ -23,7 +24,8 @@ export const ChatPanel = ({
   isProcessing,
   showDocPanel,
   setShowDocPanel,
-  chatEndRef
+  chatEndRef,
+  onReferenceClick
 }: ChatPanelProps) => {
   return (
     <main className="flex-1 flex flex-col relative bg-gradient-to-b from-[#0a0a20] to-black">
@@ -71,10 +73,14 @@ export const ChatPanel = ({
               {msg.references && msg.references.length > 0 && (
                 <div className="mt-4 pt-4 border-t border-white/10 flex flex-wrap gap-2">
                   {msg.references.map((ref: { document_id: string; file_name: string }, rIdx: number) => (
-                    <span key={rIdx} className="px-2 py-1 bg-white/5 rounded text-[10px] flex items-center gap-1 border border-white/10">
+                    <button
+                      key={rIdx}
+                      onClick={() => onReferenceClick && onReferenceClick(ref.document_id)}
+                      className="px-2 py-1 bg-white/5 hover:bg-indigo-500/20 rounded text-[10px] flex items-center gap-1 border border-white/10 transition-colors cursor-pointer text-left"
+                    >
                       <Paperclip className="w-3 h-3 text-indigo-400" />
                       {ref.file_name}
-                    </span>
+                    </button>
                   ))}
                 </div>
               )}

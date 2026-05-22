@@ -197,17 +197,18 @@ def classify_dynamic_tree(theme: str, db: Session = Depends(get_db)):
     mapper = inspect(models.Document)
     available_columns = [column.key for column in mapper.columns]
     
-    results = db.query(models.Document.tags).filter(models.Document.tags != None).all()
-    all_tags = set()
+    results = db.query(models.Document.custom_attributes).filter(models.Document.custom_attributes != None).all()
+    all_attributes = set()
     for row in results:
-        if row[0]:
-            clean_row = row[0].replace("{", "").replace("}", "").replace("[", "").replace("]", "")
-            tags = [t.strip() for t in clean_row.split(",") if t.strip()]
-            all_tags.update(tags)
+        attr_dict = row[0]
+        if isinstance(attr_dict, dict):
+            for k, v in attr_dict.items():
+                if v:
+                    all_attributes.add(f"{k}: {v}")
     
-    unique_tags = sorted(list(all_tags))
+    unique_attributes = sorted(list(all_attributes))
     
-    tree_config = classify_dynamic_tree_by_theme(theme, available_columns, unique_tags)
+    tree_config = classify_dynamic_tree_by_theme(theme, available_columns, unique_attributes)
     return tree_config
 
 @app.get("/api/organizations")
@@ -444,3 +445,22 @@ def commit_reextract(document_id: uuid.UUID, payload: CommitReextractRequest, db
     db.commit()
     
     return {"status": "completed"}
+
+from typing import Optional
+
+class UpdateMetadataRequest(BaseModel):
+    tags: str
+    custom_attributes: Dict[str, Any]
+    customer_name: Optional[str] = None
+
+@app.patch("/api/documents/{document_id}/metadata")
+def update_metadata(document_id: uuid.UUID, payload: UpdateMetadataRequest, db: Session = Depends(get_db)):
+    doc = db.query(models.Document).filter(models.Document.id == document_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    
+    doc.tags = payload.tags
+    doc.custom_attributes = payload.custom_attributes
+    doc.customer_name = payload.customer_name
+    db.commit()
+    return {"status": "success"}
