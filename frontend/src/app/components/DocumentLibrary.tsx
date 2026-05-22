@@ -362,6 +362,119 @@ export const DocumentLibrary = ({
     return genericTree;
   }, [treeConfig, docs]);
 
+  const aiExtractedTree = useMemo(() => {
+    if (treeConfig?.grouping_type !== "ai_extracted" || !treeConfig.extracted_tree) return [];
+    
+    const tree: any[] = [];
+    
+    Object.entries(treeConfig.extracted_tree).forEach(([attrKey, vals]) => {
+      const isAmountKey = /(金額|税|単価|価格|小計|合計|総額|料金|費用|代金|残高|額)/.test(attrKey);
+      
+      const attrNode: any = {
+        id: `ai-${attrKey}`,
+        label: attrKey,
+        payload: { parentGroup: attrKey },
+        children: []
+      };
+
+      if (isAmountKey) {
+        const nums: number[] = [];
+        vals.forEach(v => {
+           const numStr = String(v).replace(/[,¥円\s]/g, '');
+           const num = parseFloat(numStr);
+           if (!isNaN(num)) nums.push(num);
+        });
+        
+        let config: any = null;
+        if (nums.length >= 2) {
+          const min = Math.min(...nums);
+          const max = Math.max(...nums);
+          const range = max - min;
+          if (range > 0) {
+            const roughStep = range / 4;
+            const magnitude = Math.pow(10, Math.floor(Math.log10(roughStep || 1)));
+            const step = Math.max(10000, Math.ceil(roughStep / magnitude) * magnitude);
+            config = { step, min, max };
+          }
+        }
+
+        const formatAmount = (num: number) => {
+          if (num >= 10000) return `${num / 10000}万円`;
+          return `${num}円`;
+        };
+
+        const getAmountBinLabel = (num: number, config: any) => {
+          if (!config) return String(num);
+          const binStart = Math.floor(num / config.step) * config.step;
+          const binEnd = binStart + config.step;
+          return `${formatAmount(binStart)}〜${formatAmount(binEnd)}`;
+        };
+
+        const amountBins: Record<string, Set<string>> = {};
+        const nonAmounts: Set<string> = new Set();
+        
+        vals.forEach(v => {
+          const numStr = String(v).replace(/[,¥円\s]/g, '');
+          const num = parseFloat(numStr);
+          if (!isNaN(num)) {
+             const binLabel = getAmountBinLabel(num, config);
+             if (!amountBins[binLabel]) amountBins[binLabel] = new Set();
+             amountBins[binLabel].add(v);
+          } else {
+             nonAmounts.add(v);
+          }
+        });
+
+        Object.keys(amountBins).sort((a, b) => {
+           const numA = parseFloat(a.replace(/[^0-9.]/g, '')) || 0;
+           const numB = parseFloat(b.replace(/[^0-9.]/g, '')) || 0;
+           return numA - numB;
+        }).forEach(bin => {
+           const binNode: any = {
+              id: `ai-${attrKey}-${bin}`,
+              label: bin,
+              payload: { parentGroup: attrKey, binLabel: bin, binValues: Array.from(amountBins[bin]) },
+              children: []
+           };
+           Array.from(amountBins[bin]).sort((a, b) => {
+              const vA = parseFloat(strToNum(a as string)) || 0;
+              const vB = parseFloat(strToNum(b as string)) || 0;
+              return vA - vB;
+           }).forEach(val => {
+              binNode.children.push({
+                 id: `ai-${attrKey}-${bin}-${val}`,
+                 label: val,
+                 payload: { parentGroup: attrKey, tag: val, binLabel: bin, binValues: Array.from(amountBins[bin]) }
+              });
+           });
+           attrNode.children.push(binNode);
+        });
+        
+        if (nonAmounts.size > 0) {
+           Array.from(nonAmounts).sort().forEach(val => {
+              attrNode.children.push({
+                 id: `ai-${attrKey}-non-${val}`,
+                 label: val,
+                 payload: { parentGroup: attrKey, tag: val }
+              });
+           });
+        }
+      } else {
+        vals.sort().forEach(val => {
+           attrNode.children.push({
+              id: `ai-${attrKey}-${val}`,
+              label: val,
+              payload: { parentGroup: attrKey, tag: val }
+           });
+        });
+      }
+      
+      tree.push(attrNode);
+    });
+    
+    return tree;
+  }, [treeConfig]);
+
   const formatFileSize = (bytes?: number) => {
     if (bytes === undefined || bytes === null || bytes === 0) return "0 KB";
     const k = 1024;
@@ -465,8 +578,15 @@ export const DocumentLibrary = ({
     if (treeConfig.grouping_type === "ai_extracted") {
       if (treeConfig.target_column === "custom_attributes") {
         const attrs = doc.custom_attributes || {};
-        if (selectedTreeNode && typeof selectedTreeNode === 'object' && selectedTreeNode.parentGroup && selectedTreeNode.tag) {
-           return String(attrs[selectedTreeNode.parentGroup] || "").trim() === String(selectedTreeNode.tag).trim();
+        if (selectedTreeNode && typeof selectedTreeNode === 'object') {
+           if (selectedTreeNode.binLabel && selectedTreeNode.binValues) {
+               const valStr = String(attrs[selectedTreeNode.parentGroup] || "").trim();
+               return selectedTreeNode.binValues.includes(valStr);
+           } else if (selectedTreeNode.parentGroup && selectedTreeNode.tag) {
+               return String(attrs[selectedTreeNode.parentGroup] || "").trim() === String(selectedTreeNode.tag).trim();
+           } else {
+               return false;
+           }
         } else {
            const attrList = Object.entries(attrs).filter(([_, v]) => v).map(([k, v]) => `${k}: ${v}`);
            return attrList.includes(selectedTreeNode as string);
@@ -665,32 +785,46 @@ export const DocumentLibrary = ({
                 };
                 return renderTreeNodes(customAttrsTree as any[]);
              })()
-          ) : treeConfig?.grouping_type === "ai_extracted" && treeConfig.extracted_tree ? (
-             Object.entries(treeConfig.extracted_tree).map(([parentGroup, tagsArray]) => (
-                <div key={parentGroup} className="space-y-0.5">
-                   <div 
-                      onClick={() => toggleAIGroup(parentGroup)}
-                      className={`flex items-center gap-1.5 pl-6 pr-2 py-1.5 rounded text-xs cursor-pointer transition-colors text-gray-400 hover:bg-white/5`}
-                   >
-                     {expandedAIGroups[parentGroup] ? <ChevronDown className="w-3 h-3 shrink-0" /> : <ChevronRight className="w-3 h-3 shrink-0" />}
-                     <Folder className="w-3.5 h-3.5 shrink-0" />
-                     <span className="truncate font-bold text-indigo-300">{parentGroup}</span>
-                   </div>
-                   {expandedAIGroups[parentGroup] && tagsArray.map(tag => {
-                      const isSelected = selectedTreeNode?.parentGroup === parentGroup && selectedTreeNode?.tag === tag || selectedTreeNode === tag;
+          ) : treeConfig?.grouping_type === "ai_extracted" && aiExtractedTree.length > 0 ? (
+             (() => {
+                const renderAITreeNodes = (nodes: any[], level = 0): any => {
+                   return nodes.map(node => {
+                      const isExpanded = expandedAIGroups[node.id];
+                      const p = node.payload;
+                      const sp = selectedTreeNode || {};
+                      const isSelected = sp.parentGroup === p.parentGroup &&
+                                         sp.tag === p.tag &&
+                                         sp.binLabel === p.binLabel;
+                                         
+                      const hasChildren = node.children && node.children.length > 0;
+                      const opacityClass = level === 0 ? "opacity-100 font-bold" : level === 1 ? "opacity-90" : level === 2 ? "opacity-80" : "opacity-70";
+                      
                       return (
-                      <div 
-                         key={`${parentGroup}-${tag}`}
-                         onClick={() => setSelectedTreeNode({ parentGroup, tag })}
-                         className={`flex items-center gap-1.5 pl-10 pr-2 py-1.5 rounded text-xs cursor-pointer transition-colors ${isSelected ? 'bg-indigo-500/20 text-indigo-300' : 'text-gray-400 hover:bg-white/5'}`}
-                      >
-                        <div className="w-3 h-3 shrink-0" />
-                        <Folder className="w-3.5 h-3.5 shrink-0 opacity-80" />
-                        <span className="truncate opacity-80">{tag}</span>
-                      </div>
-                   )})}
-                </div>
-             ))
+                         <div key={node.id} className="space-y-0.5">
+                            <div 
+                               onClick={() => { toggleAIGroup(node.id); setSelectedTreeNode(node.payload); }}
+                               className={`flex items-center gap-1.5 pr-2 py-1.5 rounded text-xs cursor-pointer transition-colors ${isSelected ? 'bg-indigo-500/20 text-indigo-300' : 'text-gray-400 hover:bg-white/5'}`}
+                               style={{ paddingLeft: `${1.5 + level * 1.5}rem` }}
+                            >
+                              {hasChildren ? (
+                                isExpanded ? <ChevronDown className={`w-3 h-3 shrink-0 ${level > 0 ? 'opacity-70' : ''}`} /> : <ChevronRight className={`w-3 h-3 shrink-0 ${level > 0 ? 'opacity-70' : ''}`} />
+                              ) : (
+                                <div className="w-3 h-3 shrink-0" />
+                              )}
+                              <Folder className={`w-3.5 h-3.5 shrink-0 ${level > 0 ? 'opacity-70' : ''}`} />
+                              <span className={`truncate ${opacityClass} ${level === 0 ? 'text-indigo-300' : ''}`}>{node.label}</span>
+                            </div>
+                            {isExpanded && hasChildren && (
+                               <div className="space-y-0.5">
+                                 {renderAITreeNodes(node.children, level + 1)}
+                               </div>
+                            )}
+                         </div>
+                      );
+                   });
+                };
+                return renderAITreeNodes(aiExtractedTree);
+             })()
           ) : (
              treeNodes.map(node => (
                 <div 

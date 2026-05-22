@@ -53,8 +53,10 @@ export const ReextractReviewModal = ({ doc, isOpen, onClose, onSuccess }: Reextr
       const initialAttrSelections: Record<string, boolean> = {};
       allKeys.forEach(key => {
         if (key === "文書種類" || key === "document_type") return;
-        if (oldAttrs[key] === newAttrs[key]) return; // 変更なしは除外
-        initialAttrSelections[key] = !(key in oldAttrs);
+        const oldStr = String(oldAttrs[key] || "").trim();
+        const newStr = String(newAttrs[key] || "").trim();
+        if (oldStr === newStr) return; // 変更なし（またはどちらも未抽出）は除外
+        initialAttrSelections[key] = oldStr === "" && newStr !== ""; // 既存が空なら新規をデフォルトで選択
       });
       setAttrSelections(initialAttrSelections);
 
@@ -89,7 +91,9 @@ export const ReextractReviewModal = ({ doc, isOpen, onClose, onSuccess }: Reextr
       const finalAttrs: Record<string, any> = {};
       allKeys.forEach(key => {
         if (key === "文書種類" || key === "document_type") return;
-        if (oldAttrs[key] === newAttrs[key]) {
+        const oldStr = String(oldAttrs[key] || "").trim();
+        const newStr = String(newAttrs[key] || "").trim();
+        if (oldStr === newStr) {
           finalAttrs[key] = oldAttrs[key];
           return;
         }

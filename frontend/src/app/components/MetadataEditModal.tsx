@@ -49,7 +49,9 @@ export const MetadataEditModal = ({ isOpen, doc, onClose, onSuccess }: MetadataE
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      const tagsString = tags.join(", ");
+      const cleanTags = tags.map(t => t.trim()).filter(t => t);
+      const tagsString = cleanTags.join(", ");
+      
       const attributesObj: Record<string, string> = {};
       customAttrs.forEach(attr => {
         if (attr.key.trim()) {
@@ -60,7 +62,7 @@ export const MetadataEditModal = ({ isOpen, doc, onClose, onSuccess }: MetadataE
       await axios.patch(`${API_URL}/api/documents/${doc.id}/metadata`, {
         tags: tagsString,
         custom_attributes: attributesObj,
-        customer_name: customerName
+        customer_name: customerName.trim()
       });
       onSuccess();
     } catch (e) {

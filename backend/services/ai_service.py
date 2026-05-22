@@ -134,13 +134,14 @@ def extract_doc_metadata(text: str):
         if isinstance(raw_tags, list):
             raw_tags = ", ".join(raw_tags)
         
-        clean_tags = str(raw_tags).replace("{", "").replace("}", "").replace("[", "").replace("]", "").strip()
+        clean_tags_str = str(raw_tags).replace("{", "").replace("}", "").replace("[", "").replace("]", "").strip()
+        clean_tags = ", ".join([t.strip() for t in clean_tags_str.split(",") if t.strip()])
             
         custom_attrs = metadata.get("custom_attributes", {})
         if not isinstance(custom_attrs, dict):
             custom_attrs = {}
             
-        doc_type = metadata.get("document_type", "未分類")
+        doc_type = str(metadata.get("document_type", "未分類")).strip()
         custom_attrs["文書種類"] = doc_type
         
         # 金額系項目のカンマ編集処理
@@ -171,13 +172,20 @@ def extract_doc_metadata(text: str):
                 formatted_val = re.sub(r'\d+', safe_format, clean_val)
                 custom_attrs[k] = formatted_val
 
+        stripped_custom_attrs = {}
+        for k, v in custom_attrs.items():
+            clean_k = str(k).strip() if k else ""
+            clean_v = str(v).strip() if v else ""
+            if clean_k:
+                stripped_custom_attrs[clean_k] = clean_v
+
         return {
             "document_type": doc_type,
-            "customer_name": metadata.get("customer_name", "未抽出"),
+            "customer_name": str(metadata.get("customer_name", "未抽出")).strip(),
             "summary": metadata.get("summary", ""),
             "content_report": full_output,
             "tags": clean_tags,
-            "custom_attributes": custom_attrs
+            "custom_attributes": stripped_custom_attrs
         }
     except Exception as e:
         print(f"Critical error in analysis: {e}")
