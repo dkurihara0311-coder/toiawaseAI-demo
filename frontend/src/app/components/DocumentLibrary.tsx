@@ -366,7 +366,7 @@ export const DocumentLibrary = ({
          if (hasMissing) {
             attrNode.children.push({
                id: `${docType}-${attrKey}-none`,
-               label: '指定なし',
+               label: '（指定なし）',
                payload: { docType, attrKey, isNone: true }
             });
          }
@@ -580,7 +580,7 @@ export const DocumentLibrary = ({
       if (hasMissing) {
          attrNode.children.push({
             id: `ai-${attrKey}-none`,
-            label: '指定なし',
+            label: '（指定なし）',
             payload: { parentGroup: attrKey, isNone: true }
          });
       }
@@ -798,7 +798,7 @@ export const DocumentLibrary = ({
           <div className="flex flex-col gap-2">
             <select
               value={presetType}
-              onChange={e => handlePresetChange(e.target.value)}
+              onChange={(e: React.ChangeEvent<HTMLSelectElement>) => handlePresetChange(e.target.value)}
               className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 appearance-none cursor-pointer"
             >
               <option value="none" className="bg-[#0a0a20]">▼ 分類軸を選択</option>
@@ -813,11 +813,11 @@ export const DocumentLibrary = ({
               <input 
                 type="text" 
                 value={themeInput}
-                onChange={e => setThemeInput(e.target.value)}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setThemeInput(e.target.value)}
                 placeholder="任意のテーマを入力..."
                 disabled={presetType !== "custom"}
                 className={`flex-1 min-w-0 bg-white/5 border border-white/10 rounded px-2 py-1 text-xs text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 ${presetType !== "custom" ? "opacity-30 cursor-not-allowed" : ""}`}
-                onKeyDown={e => e.key === 'Enter' && presetType === "custom" && handleClassify()}
+                onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => e.key === 'Enter' && presetType === "custom" && handleClassify()}
               />
               <button 
                 onClick={handleClassify}

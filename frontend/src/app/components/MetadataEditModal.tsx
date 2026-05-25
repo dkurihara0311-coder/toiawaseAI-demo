@@ -132,7 +132,7 @@ export const MetadataEditModal = ({ isOpen, doc, onClose, onSuccess }: MetadataE
             <input
               type="text"
               value={customerName}
-              onChange={(e) => setCustomerName(e.target.value)}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCustomerName(e.target.value)}
               className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
               placeholder="関連企業名を入力..."
             />
@@ -155,7 +155,7 @@ export const MetadataEditModal = ({ isOpen, doc, onClose, onSuccess }: MetadataE
                     <input
                       type="text"
                       value={tag}
-                      onChange={(e) => updateTag(index, e.target.value)}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateTag(index, e.target.value)}
                       className="flex-1 bg-transparent py-1.5 text-sm text-white focus:outline-none"
                       placeholder="タグ名"
                     />
@@ -186,14 +186,14 @@ export const MetadataEditModal = ({ isOpen, doc, onClose, onSuccess }: MetadataE
                   <input
                     type="text"
                     value={attr.key}
-                    onChange={(e) => updateAttrKey(index, e.target.value)}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateAttrKey(index, e.target.value)}
                     className="w-1/3 bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm text-gray-300 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                     placeholder="キー (例: 文書種類)"
                   />
                   <input
                     type="text"
                     value={attr.value}
-                    onChange={(e) => updateAttrValue(index, e.target.value)}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateAttrValue(index, e.target.value)}
                     className="flex-1 bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
                     placeholder="値"
                   />

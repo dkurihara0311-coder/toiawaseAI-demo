@@ -80,7 +80,8 @@ def extract_doc_metadata(text: str):
     
     is_eco_mode = char_count > 10000
     
-    prompt = f"""
+    eco_instruction = '各見出しについて、内容は書かず見出しのみを出力。' if is_eco_mode else '各見出しについて、詳細な分析内容を記述。'
+    prompt = """
 あなたは超一流のドキュメントアナリストです。資料を精査し、以下の情報を出力してください。
 
 1. 【JSONメタデータ】
@@ -91,21 +92,21 @@ def extract_doc_metadata(text: str):
 さらに、以下のキーを必ず含めてください。
 - "document_type": 資料の分類（例：見積書, 要件定義書, 契約書, 提案書, 議事録, 請求書, マニュアル, 設計書, 報告書, 社内申請書など。内容に最も適した分かりやすい文書種類を一つ指定）
 - "custom_attributes": 判定した文書種類に特有の「固有属性」を抽出したJSONオブジェクト。
-  （例：見積書なら {{"金額": "100000", "期限": "2024-06-30"}}、契約書なら {{"契約日": "2024-01-01", "相手先": "株式会社A"}} のように、あなたがその文書種類に必要だと考える項目を自律的に抽出してください。
+  （例：見積書なら {"金額": "100000", "期限": "2024-06-30"}、契約書なら {"契約日": "2024-01-01", "相手先": "株式会社A"} のように、あなたがその文書種類に必要だと考える項目を自律的に抽出してください。
   【重要ルール】抽出結果のキーを統一するため、「有効期限」「提出期限」「契約期限」などはすべて「期限」というキーに統一し、「見積金額」「請求金額」「契約金額」などはすべて「金額」というキーに統一してください。値が存在しない場合は空文字にしてください。
   さらに、日付を表す値（発行日、期限、契約日など）は、可能な限り `YYYY-MM-DD` のフォーマットで出力してください。もし書面に具体的な日付が明示されておらず「発行から30日後」や「納品月末」などの相対的・抽象的な記述がある場合は、書面の文脈や指示（「納品日を基準とする」など）に厳密に従って基準となる日付を特定し、正確に計算して `YYYY-MM-DD` の形式に変換して出力してください。もし基準となる日付が不明確で確証を持って計算できない場合は、適当な日付を使用せず元の文字列（例：『未定』『月末』など）をそのまま出力してください。）
 
 2. 【資料の章立て】
 主要な章（見出し）を抽出。
-{'各見出しについて、内容は書かず見出しのみを出力。' if is_eco_mode else '各見出しについて、詳細な分析内容を記述。'}
+__ECO_INSTRUCTION__
 
 最後に【エグゼクティブ・サマリー】を1,000文字程度で記述。
 
 資料：
 ---
-{context_text}
+__CONTEXT_TEXT__
 ---
-"""
+""".replace("__ECO_INSTRUCTION__", eco_instruction).replace("__CONTEXT_TEXT__", context_text)
     try:
         response = safe_generate_with_retry(model, prompt)
         full_output = response.text
@@ -198,33 +199,33 @@ def analyze_query_and_filters(message: str, history: list):
     model = get_model()
     h_text = "\n".join([f"{h['role']}: {h['content']}" for h in history[-5:]])
     
-    prompt = f"""
+    prompt = """
 あなたは超一流のプロンプトエンジニア兼検索アナリストです。
 現在の会話履歴と最新の問いから、資料検索の必要性と、検索に必要なメタデータフィルタを抽出してください。
 
 【会話履歴】
-{h_text}
+__HISTORY__
 
 【最新の問い】
-{message}
+__MESSAGE__
 
 【出力形式】
 必ず以下のJSON形式でのみ出力してください。余計な解説は不要です。
-{{
+{
   "is_search_required": boolean,  // 資料検索が必要な事実確認や情報抽出の問いか
   "standalone_query": "string",   // 履歴を考慮して単体で成立するように再構成された検索クエリ
-  "filters": {{
+  "filters": {
     "file_names": ["string"],      // 関連するファイル名や資料名のキーワード（例: "見積書", "規約"）
     "customer_names": ["string"],  // 関連する顧客名や組織名のキーワード
     "tags": ["string"]             // 関連する属性タグのキーワード
-  }},
+  },
   "intent": "DOCUMENT_QUERY" | "CONVERSATION"  // 文脈維持の会話か、資料への問いか
-}}
+}
 
 【重要ルール】
 - 挨拶、感謝、指示（「要約して」「続けて」等）のみの場合は、is_search_required: false とすること。
 - 資料の特定につながる固有名詞やキーワードがあれば必ず抽出すること。
-"""
+""".replace("__HISTORY__", h_text).replace("__MESSAGE__", message)
     try:
         response = safe_generate_with_retry(model, prompt)
         # JSON部分を抽出
@@ -321,28 +322,28 @@ def classify_dynamic_tree_by_theme(theme: str, available_columns: list, all_attr
     columns_str = ", ".join(available_columns) if available_columns else "なし"
     attrs_str = ", ".join(all_attributes) if all_attributes else "なし"
     
-    prompt = f"""
+    prompt = """
 あなたは超一流のデータアーキテクト兼データ分類スペシャリストです。
 ユーザーが指定した「テーマ」に基づいて、ドキュメントのリストを階層ツリーで分類するための最適な【ターゲットカラム】と【グループ化の手法】を推論してください。
 
 【ユーザー入力テーマ】
-{theme}
+__THEME__
 
 【現在利用可能なカラム（メタデータフィールド）一覧】
-{columns_str}
+__COLUMNS__
 
 【既存の固有属性の一部（参考）】
-{attrs_str}
+__ATTRIBUTES__
 
 以下のJSONフォーマットでのみ出力してください。
-{{
+{
   "target_column": "選ばれたカラム名 (例: created_at, custom_attributes, customer_name, file_name など)",
   "grouping_type": "date" または "extension" または "exact_match" または "comma_separated" または "ai_extracted",
-  "extracted_tree": {{
+  "extracted_tree": {
     "元の属性のキー名 (例: 金額)": ["属性の値1 (例: 100000)", "属性の値2"],
     "元の属性のキー名 (例: 期限)": ["属性の値3"]
-  }}
-}}
+  }
+}
 
 【各項目について】
 - target_column: 利用可能なカラム一覧の中から、テーマに最も適した1つのカラム名を正確に選んでください。
@@ -352,10 +353,10 @@ def classify_dynamic_tree_by_theme(theme: str, available_columns: list, all_attr
   - "exact_match": カラムの値そのもので単純にグループ化する場合
   - "comma_separated": target_columnがカンマ区切りの文字列（customer_nameなど）の場合
   - "ai_extracted": target_columnがcustom_attributes等で、既存の固有属性リストの中からテーマに関連する属性を抽出して分類する場合
-- extracted_tree: grouping_type が "ai_extracted" の場合のみ出力してください。既存の固有属性リスト（"キー: 値"の形式）から【テーマに関連する属性のみ】を抽出し、AIが勝手に新しいカテゴリ名を作るのではなく、必ず元の「キー」を親カテゴリとし、その「値」のリストを子要素としてJSONオブジェクト（辞書）として出力してください。テーマに少しでも無関係な属性は絶対に含めないでください。ai_extracted 以外の場合は空のオブジェクト {{}} にしてください。
+- extracted_tree: grouping_type が "ai_extracted" の場合のみ出力してください。既存の固有属性リスト（"キー: 値"の形式）から【テーマに関連する属性のみ】を抽出し、AIが勝手に新しいカテゴリ名を作るのではなく、必ず元の「キー」を親カテゴリとし、その「値」のリストを子要素としてJSONオブジェクト（辞書）として出力してください。テーマに少しでも無関係な属性は絶対に含めないでください。ai_extracted 以外の場合は空のオブジェクト {} にしてください。
 
 余計な解説やマークダウン表記は一切含めず、純粋なJSON文字列のみを出力してください。
-"""
+""".replace("__THEME__", theme).replace("__COLUMNS__", columns_str).replace("__ATTRIBUTES__", attrs_str)
     try:
         response = safe_generate_with_retry(model, prompt)
         
