@@ -355,6 +355,22 @@ export const DocumentLibrary = ({
                attrNode.children.push(yearNode);
             });
          }
+         
+         const hasMissing = docs.some(doc => {
+            const attrs = doc.custom_attributes || {};
+            const dt = attrs["文書種類"] || doc.document_type || "未分類";
+            if (dt !== docType) return false;
+            return !String(attrs[attrKey] || "").trim();
+         });
+         
+         if (hasMissing) {
+            attrNode.children.push({
+               id: `${docType}-${attrKey}-none`,
+               label: '指定なし',
+               payload: { docType, attrKey, isNone: true }
+            });
+         }
+         
          docTypeNode.children.push(attrNode);
       });
       genericTree.push(docTypeNode);
@@ -367,8 +383,43 @@ export const DocumentLibrary = ({
     
     const tree: any[] = [];
     
-    Object.entries(treeConfig.extracted_tree).forEach(([attrKey, vals]) => {
+    Object.keys(treeConfig.extracted_tree).forEach((attrKey) => {
+      // 実際のドキュメントから最新の値を収集
+      const valsSet = new Set<string>();
+      let hasMissing = false;
+      
+      docs.forEach(doc => {
+         let valStr = "";
+         if (treeConfig.target_column === "custom_attributes") {
+             const attrs = doc.custom_attributes || {};
+             valStr = String(attrs[attrKey] || "").trim();
+         } else {
+             // 他のカラム（タグなど）の場合はカンマ区切りなどを考慮
+             const list = (String((doc as any)[treeConfig.target_column] || "")).split(',').map(v => v.trim());
+             // extracted_treeのキーに合致するものがあるか確認
+             if (list.includes(attrKey)) {
+                 valStr = attrKey;
+             }
+         }
+         
+         if (valStr) {
+             valsSet.add(valStr);
+         } else if (treeConfig.target_column === "custom_attributes") {
+             hasMissing = true;
+         }
+      });
+      
+      const vals = Array.from(valsSet);
+      
       const isAmountKey = /(金額|税|単価|価格|小計|合計|総額|料金|費用|代金|残高|額)/.test(attrKey);
+      let isDateKey = false;
+      
+      // Check if this key implies a date or has date values
+      if (attrKey.includes("期限") || attrKey.includes("日")) {
+         isDateKey = true;
+      } else {
+         isDateKey = vals.some(v => /^\d{4}[-/年]\d{1,2}([-/月]\d{1,2}日?)?$/.test(v));
+      }
       
       const attrNode: any = {
         id: `ai-${attrKey}`,
@@ -377,7 +428,56 @@ export const DocumentLibrary = ({
         children: []
       };
 
-      if (isAmountKey) {
+      if (isDateKey) {
+         const dateTree: Record<string, Record<string, Set<string>>> = {};
+         vals.forEach(v => {
+            const dateMatch = v.match(/^(\d{4})[-/年]?(\d{1,2})?[-/月]?(\d{1,2})?[日]?$/);
+            if (dateMatch) {
+               const y = dateMatch[1] + "年";
+               const m = dateMatch[2] ? dateMatch[2].padStart(2, '0') + "月" : "";
+               const d = dateMatch[3] ? dateMatch[3].padStart(2, '0') + "日" : "";
+               
+               if (!dateTree[y]) dateTree[y] = {};
+               if (m) {
+                  if (!dateTree[y][m]) dateTree[y][m] = new Set();
+                  if (d) dateTree[y][m].add(d);
+               }
+            } else {
+               // Fallback if it doesn't match date perfectly but is in date category
+               attrNode.children.push({
+                  id: `ai-${attrKey}-${v}`,
+                  label: v,
+                  payload: { parentGroup: attrKey, tag: v }
+               });
+            }
+         });
+         
+         Object.keys(dateTree).sort().reverse().forEach(year => {
+            const yearNode: any = {
+               id: `ai-${attrKey}-${year}`,
+               label: year,
+               payload: { parentGroup: attrKey, year },
+               children: []
+            };
+            Object.keys(dateTree[year]).sort((a, b) => parseInt(b) - parseInt(a)).forEach(month => {
+               const monthNode: any = {
+                  id: `ai-${attrKey}-${year}-${month}`,
+                  label: month,
+                  payload: { parentGroup: attrKey, year, month },
+                  children: []
+               };
+               Array.from(dateTree[year][month]).sort((a, b) => parseInt(b) - parseInt(a)).forEach(day => {
+                  monthNode.children.push({
+                     id: `ai-${attrKey}-${year}-${month}-${day}`,
+                     label: day,
+                     payload: { parentGroup: attrKey, year, month, day }
+                  });
+               });
+               yearNode.children.push(monthNode);
+            });
+            attrNode.children.push(yearNode);
+         });
+      } else if (isAmountKey) {
         const nums: number[] = [];
         vals.forEach(v => {
            const numStr = String(v).replace(/[,¥円\s]/g, '');
@@ -469,11 +569,27 @@ export const DocumentLibrary = ({
         });
       }
       
+      // Note: hasMissing was calculated dynamically above.
+      if (treeConfig.target_column !== "custom_attributes") {
+          hasMissing = docs.some(doc => {
+             const list = (String((doc as any)[treeConfig.target_column] || "")).split(',').map(v => v.trim());
+             return !list.includes(attrKey);
+          });
+      }
+      
+      if (hasMissing) {
+         attrNode.children.push({
+            id: `ai-${attrKey}-none`,
+            label: '指定なし',
+            payload: { parentGroup: attrKey, isNone: true }
+         });
+      }
+      
       tree.push(attrNode);
     });
     
     return tree;
-  }, [treeConfig]);
+  }, [treeConfig, docs]);
 
   const formatFileSize = (bytes?: number) => {
     if (bytes === undefined || bytes === null || bytes === 0) return "0 KB";
@@ -544,6 +660,15 @@ export const DocumentLibrary = ({
       if (selectedTreeNode.docType && selectedTreeNode.docType !== docType) return false;
       if (selectedTreeNode.attrKey) {
          const valStr = String(attrs[selectedTreeNode.attrKey] || "").trim();
+         
+         if (selectedTreeNode.isNone) {
+            return valStr === "";
+         }
+
+         if (!selectedTreeNode.attrValue && !selectedTreeNode.binLabel && !selectedTreeNode.year) {
+            return true;
+         }
+
          if (!valStr) return false;
          
          // value matching
@@ -582,8 +707,25 @@ export const DocumentLibrary = ({
            if (selectedTreeNode.binLabel && selectedTreeNode.binValues) {
                const valStr = String(attrs[selectedTreeNode.parentGroup] || "").trim();
                return selectedTreeNode.binValues.includes(valStr);
+           } else if (selectedTreeNode.isNone) {
+               const val = attrs[selectedTreeNode.parentGroup];
+               return val === undefined || val === null || String(val).trim() === "";
+           } else if (selectedTreeNode.year) {
+               const valStr = String(attrs[selectedTreeNode.parentGroup] || "").trim();
+               const dateMatch = valStr.match(/^(\d{4})[-/年]?(\d{1,2})?[-/月]?(\d{1,2})?[日]?$/);
+               if (!dateMatch) return false;
+               const y = dateMatch[1] + "年";
+               const m = dateMatch[2] ? dateMatch[2].padStart(2, '0') + "月" : "";
+               const d = dateMatch[3] ? dateMatch[3].padStart(2, '0') + "日" : "";
+               
+               if (selectedTreeNode.year !== y) return false;
+               if (selectedTreeNode.month && selectedTreeNode.month !== m) return false;
+               if (selectedTreeNode.day && selectedTreeNode.day !== d) return false;
+               return true;
            } else if (selectedTreeNode.parentGroup && selectedTreeNode.tag) {
                return String(attrs[selectedTreeNode.parentGroup] || "").trim() === String(selectedTreeNode.tag).trim();
+           } else if (selectedTreeNode.parentGroup && !selectedTreeNode.year && !selectedTreeNode.binLabel && !selectedTreeNode.tag && !selectedTreeNode.isNone) {
+               return true;
            } else {
                return false;
            }
@@ -754,7 +896,8 @@ export const DocumentLibrary = ({
                                          sp.binLabel === p.binLabel &&
                                          sp.year === p.year &&
                                          sp.month === p.month &&
-                                         sp.day === p.day;
+                                         sp.day === p.day &&
+                                         sp.isNone === p.isNone;
                                          
                       const hasChildren = node.children && node.children.length > 0;
                       const opacityClass = level === 0 ? "opacity-100 font-bold" : level === 1 ? "opacity-90" : level === 2 ? "opacity-80" : level === 3 ? "opacity-70" : "opacity-60";
@@ -794,7 +937,11 @@ export const DocumentLibrary = ({
                       const sp = selectedTreeNode || {};
                       const isSelected = sp.parentGroup === p.parentGroup &&
                                          sp.tag === p.tag &&
-                                         sp.binLabel === p.binLabel;
+                                         sp.binLabel === p.binLabel &&
+                                         sp.isNone === p.isNone &&
+                                         sp.year === p.year &&
+                                         sp.month === p.month &&
+                                         sp.day === p.day;
                                          
                       const hasChildren = node.children && node.children.length > 0;
                       const opacityClass = level === 0 ? "opacity-100 font-bold" : level === 1 ? "opacity-90" : level === 2 ? "opacity-80" : "opacity-70";
