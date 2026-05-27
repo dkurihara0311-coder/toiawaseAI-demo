@@ -136,7 +136,8 @@ async def upload_file(
         storage_path=remote_path, # Use remote path as unique identifier
         uploaded_by=DEMO_USER_ID,
         file_size=len(content),
-        status="uploaded"
+        status="uploaded",
+        is_archived=False
     )
     db.add(doc)
     db.commit()
@@ -250,14 +251,19 @@ def chat(request: schemas.ChatRequest, db: Session = Depends(get_db)):
                     search_filters.append(models.Document.tags.ilike(f"%{kw}%"))
             
             if search_filters:
-                docs = db.query(models.Document).filter(or_(*search_filters)).all()
+                docs = db.query(models.Document).filter(models.Document.is_archived == False).filter(or_(*search_filters)).all()
                 doc_ids = [d.id for d in docs]
 
         # 2. 埋め込みとベクトル検索（範囲制限付き）
         question_embedding = get_embedding(search_query)
         if question_embedding:
             # しきい値を 0.3 に厳格化してノイズを抑制
-            query = db.query(models.DocumentChunk).filter(
+            # is_archived == False のドキュメントに属するチャンクのみを対象とするため、DocumentとJOIN
+            query = db.query(models.DocumentChunk).join(
+                models.Document, models.DocumentChunk.document_id == models.Document.id
+            ).filter(
+                models.Document.is_archived == False
+            ).filter(
                 models.DocumentChunk.embedding.cosine_distance(question_embedding) < 0.3
             )
             
@@ -452,6 +458,7 @@ class UpdateMetadataRequest(BaseModel):
     tags: str
     custom_attributes: Dict[str, Any]
     customer_name: Optional[str] = None
+    is_archived: Optional[bool] = None
 
 @app.patch("/api/documents/{document_id}/metadata")
 def update_metadata(document_id: uuid.UUID, payload: UpdateMetadataRequest, db: Session = Depends(get_db)):
@@ -462,5 +469,7 @@ def update_metadata(document_id: uuid.UUID, payload: UpdateMetadataRequest, db: 
     doc.tags = payload.tags
     doc.custom_attributes = payload.custom_attributes
     doc.customer_name = payload.customer_name
+    if payload.is_archived is not None:
+        doc.is_archived = payload.is_archived
     db.commit()
     return {"status": "success"}

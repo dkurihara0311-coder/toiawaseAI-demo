@@ -10,6 +10,7 @@ export interface Document {
   tags?: string;
   document_type?: string;
   custom_attributes?: Record<string, string>;
+  is_archived?: boolean;
 }
 
 export interface Message {

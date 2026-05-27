@@ -115,6 +115,14 @@ export const DocumentDetails = ({
               )}
               
               <div className="space-y-4 pt-4 border-t border-white/5 font-sans shrink-0">
+                {doc.is_archived && (
+                  <div>
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black bg-red-500/10 text-red-400 border border-red-500/20 mb-1 shadow-[0_0_8px_rgba(239,68,68,0.15)] animate-pulse">
+                      <span className="w-1.5 h-1.5 rounded-full bg-red-400"></span>
+                      アーカイブ中
+                    </span>
+                  </div>
+                )}
                 <div>
                   <div className="text-[10px] text-gray-500 uppercase font-bold mb-1">関連組織 / 名称</div>
                   <div className="text-sm font-medium text-gray-200">{doc.customer_name || '未抽出'}</div>

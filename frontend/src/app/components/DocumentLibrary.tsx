@@ -64,13 +64,14 @@ export const DocumentLibrary = ({
   
   // 動的ツリーステート
   const [treeConfig, setTreeConfig] = useState<TreeConfig | null>(null);
-  const [selectedTreeNode, setSelectedTreeNode] = useState<any>(null);
-  const [expandedYears, setExpandedYears] = useState<Record<string, boolean>>({});
-  const [expandedMonths, setExpandedMonths] = useState<Record<string, boolean>>({});
+  const [selectedTreeNodeId, setSelectedTreeNodeId] = useState<string | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
   const [expandedAIGroups, setExpandedAIGroups] = useState<Record<string, boolean>>({});
+  const [searchQuery, setSearchQuery] = useState("");
+  const [hasInputValue, setHasInputValue] = useState(false);
+  const isComposing = useRef(false);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
 
-  const toggleYear = (y: string) => setExpandedYears(prev => ({...prev, [y]: !prev[y]}));
-  const toggleMonth = (ym: string) => setExpandedMonths(prev => ({...prev, [ym]: !prev[ym]}));
   const toggleAIGroup = (g: string) => setExpandedAIGroups(prev => ({...prev, [g]: !prev[g]}));
 
   const API_URL = (() => {
@@ -86,7 +87,7 @@ export const DocumentLibrary = ({
     setPresetType(val);
     setThemeInput("");
     setTreeConfig(null);
-    setSelectedTreeNode(null);
+    setSelectedTreeNodeId(null);
 
     if (val === "date") {
       setTreeConfig({ target_column: "created_at", grouping_type: "date", extracted_tree: {} });
@@ -106,7 +107,7 @@ export const DocumentLibrary = ({
     if (!input) return;
     setIsClassifying(true);
     setTreeConfig(null);
-    setSelectedTreeNode(null);
+    setSelectedTreeNodeId(null);
 
     try {
       const res = await axios.get(`${API_URL}/api/tree/classify`, { params: { theme: input } });
@@ -118,12 +119,27 @@ export const DocumentLibrary = ({
     }
   };
 
+  // 表示用ドキュメントの算出（showArchivedがOFFならアーカイブされたものは除外）
+  const displayedDocs = useMemo(() => {
+    return docs.filter(doc => {
+      if (!showArchived && doc.is_archived) return false;
+      return true;
+    });
+  }, [docs, showArchived]);
+
+  interface TreeNode {
+    id: string;
+    label: string;
+    payload: any;
+    children?: TreeNode[];
+  }
+
   // 一般的なツリーノードの抽出
-  const treeNodes = useMemo(() => {
+  const buildGeneralTree = (docsList: Document[]): TreeNode[] => {
     if (!treeConfig || treeConfig.grouping_type === "date" || treeConfig.grouping_type === "ai_extracted") return [];
     
     const nodes = new Set<string>();
-    docs.forEach(doc => {
+    docsList.forEach(doc => {
       const val = (doc as any)[treeConfig.target_column] as string;
       if (!val) return;
       
@@ -138,16 +154,20 @@ export const DocumentLibrary = ({
         nodes.add(val.trim());
       }
     });
-    return Array.from(nodes).sort();
-  }, [treeConfig, docs]);
+    return Array.from(nodes).sort().map(node => ({
+      id: node,
+      label: node,
+      payload: { value: node }
+    }));
+  };
 
   // 日付ツリーノードの抽出（3階層：年 > 月 > 日）
-  const dateTree = useMemo(() => {
-    if (treeConfig?.grouping_type !== "date") return {};
+  const buildDateTree = (docsList: Document[]): TreeNode[] => {
+    if (treeConfig?.grouping_type !== "date") return [];
     
     const tree: Record<string, Record<string, Set<string>>> = {};
     
-    docs.forEach(doc => {
+    docsList.forEach(doc => {
       const val = (doc as any)[treeConfig.target_column] as string;
       if (!val) return;
       const date = new Date(val);
@@ -161,25 +181,53 @@ export const DocumentLibrary = ({
       tree[y][m].add(d);
     });
     
-    const sortedTree: Record<string, Record<string, string[]>> = {};
+    const result: TreeNode[] = [];
     Object.keys(tree).sort().reverse().forEach(y => {
-      sortedTree[y] = {};
+      const yearNode: TreeNode = {
+        id: y,
+        label: y,
+        payload: { year: y },
+        children: []
+      };
       Object.keys(tree[y]).sort((a, b) => parseInt(b) - parseInt(a)).forEach(m => {
-        sortedTree[y][m] = Array.from(tree[y][m]).sort((a, b) => parseInt(b) - parseInt(a));
+        const monthNode: TreeNode = {
+          id: `${y}-${m}`,
+          label: m,
+          payload: { year: y, month: m },
+          children: []
+        };
+        Array.from(tree[y][m]).sort((a, b) => parseInt(b) - parseInt(a)).forEach(d => {
+          monthNode.children?.push({
+            id: `${y}-${m}-${d}`,
+            label: d,
+            payload: { year: y, month: m, day: d }
+          });
+        });
+        yearNode.children?.push(monthNode);
       });
+      result.push(yearNode);
     });
-    return sortedTree;
-  }, [treeConfig, docs]);
+    return result;
+  };
 
   const strToNum = (s: string) => s.replace(/[^0-9.-]/g, '');
 
-  const customAttrsTree = useMemo(() => {
-    if (treeConfig?.grouping_type !== "custom_attributes") return {};
+  const normalizeText = (text: string): string => {
+    if (!text) return "";
+    let normalized = text.normalize("NFKC");
+    normalized = normalized.toLowerCase();
+    normalized = normalized.replace(/[\u3041-\u3096]/g, (match) => {
+      return String.fromCharCode(match.charCodeAt(0) + 0x60);
+    });
+    return normalized;
+  };
+
+  const buildCustomAttrsTree = (docsList: Document[]): TreeNode[] => {
+    if (treeConfig?.grouping_type !== "custom_attributes") return [];
     
-    // First pass: collect all amounts to find min/max for binning
     const amountValues: Record<string, number[]> = {};
     
-    docs.forEach(doc => {
+    docsList.forEach(doc => {
       const attrs = doc.custom_attributes || {};
       Object.entries(attrs).forEach(([k, v]) => {
         if (!v || k === "文書種類" || k === "document_type") return;
@@ -195,7 +243,6 @@ export const DocumentLibrary = ({
       });
     });
     
-    // Determine dynamic bins for amounts
     const amountBinsConfig: Record<string, { step: number, min: number, max: number }> = {};
     Object.entries(amountValues).forEach(([k, vals]) => {
       if (vals.length < 2) return;
@@ -224,7 +271,7 @@ export const DocumentLibrary = ({
 
     const tree: any = {};
     
-    docs.forEach(doc => {
+    docsList.forEach(doc => {
       const attrs = doc.custom_attributes || {};
       const docType = attrs["文書種類"] || doc.document_type || "未分類";
       
@@ -240,7 +287,6 @@ export const DocumentLibrary = ({
         const valStr = String(v).trim();
         let isDate = false;
         
-        // Date parsing
         if (k.includes("期限") || k.includes("日") || valStr.match(/^\d{4}[-/年]\d{1,2}([-/月]\d{1,2}日?)?$/)) {
           const dateMatch = valStr.match(/^(\d{4})[-/年]?(\d{1,2})?[-/月]?(\d{1,2})?[日]?$/);
           if (dateMatch) {
@@ -276,10 +322,9 @@ export const DocumentLibrary = ({
       });
     });
     
-    // Sort tree structures and build generic tree
-    const genericTree: any[] = [];
+    const genericTree: TreeNode[] = [];
     Object.keys(tree).sort().forEach(docType => {
-      const docTypeNode: any = {
+      const docTypeNode: TreeNode = {
          id: docType,
          label: docType,
          payload: { docType },
@@ -288,7 +333,7 @@ export const DocumentLibrary = ({
       
       Object.keys(tree[docType]).sort().forEach(attrKey => {
          const node = tree[docType][attrKey];
-         const attrNode: any = {
+         const attrNode: TreeNode = {
             id: `${docType}-${attrKey}`,
             label: attrKey,
             payload: { docType, attrKey },
@@ -297,7 +342,7 @@ export const DocumentLibrary = ({
          
          if (node.type === "value") {
             Array.from(node.values as Set<string>).sort().forEach((val: string) => {
-               attrNode.children.push({
+               attrNode.children?.push({
                   id: `${docType}-${attrKey}-${val}`,
                   label: val,
                   payload: { docType, attrKey, attrValue: val }
@@ -309,7 +354,7 @@ export const DocumentLibrary = ({
               const numB = parseFloat(b.replace(/[^0-9.]/g, '')) || 0;
               return numA - numB;
             }).forEach((bin: string) => {
-               const binNode: any = {
+               const binNode: TreeNode = {
                   id: `${docType}-${attrKey}-${bin}`,
                   label: bin,
                   payload: { docType, attrKey, binLabel: bin, binValues: Array.from(node.amountBins[bin]) },
@@ -320,43 +365,43 @@ export const DocumentLibrary = ({
                   const vB = parseFloat(strToNum(b as string)) || 0;
                   return vA - vB;
                }).forEach((val: string) => {
-                  binNode.children.push({
+                  binNode.children?.push({
                      id: `${docType}-${attrKey}-${bin}-${val}`,
                      label: val,
                      payload: { docType, attrKey, binLabel: bin, attrValue: val, binValues: Array.from(node.amountBins[bin]) }
                   });
                });
-               attrNode.children.push(binNode);
+               attrNode.children?.push(binNode);
             });
          } else if (node.type === "date") {
             Object.keys(node.dateTree).sort().reverse().forEach((year: string) => {
-               const yearNode: any = {
+               const yearNode: TreeNode = {
                   id: `${docType}-${attrKey}-${year}`,
                   label: year,
                   payload: { docType, attrKey, year },
                   children: []
                };
                Object.keys(node.dateTree[year]).sort((a, b) => parseInt(b) - parseInt(a)).forEach((month: string) => {
-                  const monthNode: any = {
+                  const monthNode: TreeNode = {
                      id: `${docType}-${attrKey}-${year}-${month}`,
                      label: month,
                      payload: { docType, attrKey, year, month },
                      children: []
                   };
                   Array.from(node.dateTree[year][month] as Set<string>).sort((a, b) => parseInt(b) - parseInt(a)).forEach((day: string) => {
-                     monthNode.children.push({
+                     monthNode.children?.push({
                         id: `${docType}-${attrKey}-${year}-${month}-${day}`,
                         label: day,
                         payload: { docType, attrKey, year, month, day }
                      });
                   });
-                  yearNode.children.push(monthNode);
+                  yearNode.children?.push(monthNode);
                });
-               attrNode.children.push(yearNode);
+               attrNode.children?.push(yearNode);
             });
          }
          
-         const hasMissing = docs.some(doc => {
+         const hasMissing = docsList.some(doc => {
             const attrs = doc.custom_attributes || {};
             const dt = attrs["文書種類"] || doc.document_type || "未分類";
             if (dt !== docType) return false;
@@ -364,39 +409,36 @@ export const DocumentLibrary = ({
          });
          
          if (hasMissing) {
-            attrNode.children.push({
+            attrNode.children?.push({
                id: `${docType}-${attrKey}-none`,
                label: '（指定なし）',
                payload: { docType, attrKey, isNone: true }
             });
          }
          
-         docTypeNode.children.push(attrNode);
+         docTypeNode.children?.push(attrNode);
       });
       genericTree.push(docTypeNode);
     });
     return genericTree;
-  }, [treeConfig, docs]);
+  };
 
-  const aiExtractedTree = useMemo(() => {
+  const buildAIExtractedTree = (docsList: Document[]): TreeNode[] => {
     if (treeConfig?.grouping_type !== "ai_extracted" || !treeConfig.extracted_tree) return [];
     
-    const tree: any[] = [];
+    const tree: TreeNode[] = [];
     
     Object.keys(treeConfig.extracted_tree).forEach((attrKey) => {
-      // 実際のドキュメントから最新の値を収集
       const valsSet = new Set<string>();
       let hasMissing = false;
       
-      docs.forEach(doc => {
+      docsList.forEach(doc => {
          let valStr = "";
          if (treeConfig.target_column === "custom_attributes") {
              const attrs = doc.custom_attributes || {};
              valStr = String(attrs[attrKey] || "").trim();
          } else {
-             // 他のカラム（タグなど）の場合はカンマ区切りなどを考慮
              const list = (String((doc as any)[treeConfig.target_column] || "")).split(',').map(v => v.trim());
-             // extracted_treeのキーに合致するものがあるか確認
              if (list.includes(attrKey)) {
                  valStr = attrKey;
              }
@@ -410,18 +452,16 @@ export const DocumentLibrary = ({
       });
       
       const vals = Array.from(valsSet);
-      
       const isAmountKey = /(金額|税|単価|価格|小計|合計|総額|料金|費用|代金|残高|額)/.test(attrKey);
       let isDateKey = false;
       
-      // Check if this key implies a date or has date values
       if (attrKey.includes("期限") || attrKey.includes("日")) {
          isDateKey = true;
       } else {
          isDateKey = vals.some(v => /^\d{4}[-/年]\d{1,2}([-/月]\d{1,2}日?)?$/.test(v));
       }
       
-      const attrNode: any = {
+      const attrNode: TreeNode = {
         id: `ai-${attrKey}`,
         label: attrKey,
         payload: { parentGroup: attrKey },
@@ -443,8 +483,7 @@ export const DocumentLibrary = ({
                   if (d) dateTree[y][m].add(d);
                }
             } else {
-               // Fallback if it doesn't match date perfectly but is in date category
-               attrNode.children.push({
+               attrNode.children?.push({
                   id: `ai-${attrKey}-${v}`,
                   label: v,
                   payload: { parentGroup: attrKey, tag: v }
@@ -453,29 +492,29 @@ export const DocumentLibrary = ({
          });
          
          Object.keys(dateTree).sort().reverse().forEach(year => {
-            const yearNode: any = {
+            const yearNode: TreeNode = {
                id: `ai-${attrKey}-${year}`,
                label: year,
                payload: { parentGroup: attrKey, year },
                children: []
             };
             Object.keys(dateTree[year]).sort((a, b) => parseInt(b) - parseInt(a)).forEach(month => {
-               const monthNode: any = {
+               const monthNode: TreeNode = {
                   id: `ai-${attrKey}-${year}-${month}`,
                   label: month,
                   payload: { parentGroup: attrKey, year, month },
                   children: []
                };
                Array.from(dateTree[year][month]).sort((a, b) => parseInt(b) - parseInt(a)).forEach(day => {
-                  monthNode.children.push({
+                  monthNode.children?.push({
                      id: `ai-${attrKey}-${year}-${month}-${day}`,
                      label: day,
                      payload: { parentGroup: attrKey, year, month, day }
                   });
                });
-               yearNode.children.push(monthNode);
+               yearNode.children?.push(monthNode);
             });
-            attrNode.children.push(yearNode);
+            attrNode.children?.push(yearNode);
          });
       } else if (isAmountKey) {
         const nums: number[] = [];
@@ -530,7 +569,7 @@ export const DocumentLibrary = ({
            const numB = parseFloat(b.replace(/[^0-9.]/g, '')) || 0;
            return numA - numB;
         }).forEach(bin => {
-           const binNode: any = {
+           const binNode: TreeNode = {
               id: `ai-${attrKey}-${bin}`,
               label: bin,
               payload: { parentGroup: attrKey, binLabel: bin, binValues: Array.from(amountBins[bin]) },
@@ -541,18 +580,18 @@ export const DocumentLibrary = ({
               const vB = parseFloat(strToNum(b as string)) || 0;
               return vA - vB;
            }).forEach(val => {
-              binNode.children.push({
+              binNode.children?.push({
                  id: `ai-${attrKey}-${bin}-${val}`,
                  label: val,
                  payload: { parentGroup: attrKey, tag: val, binLabel: bin, binValues: Array.from(amountBins[bin]) }
               });
            });
-           attrNode.children.push(binNode);
+           attrNode.children?.push(binNode);
         });
         
         if (nonAmounts.size > 0) {
            Array.from(nonAmounts).sort().forEach(val => {
-              attrNode.children.push({
+              attrNode.children?.push({
                  id: `ai-${attrKey}-non-${val}`,
                  label: val,
                  payload: { parentGroup: attrKey, tag: val }
@@ -561,7 +600,7 @@ export const DocumentLibrary = ({
         }
       } else {
         vals.sort().forEach(val => {
-           attrNode.children.push({
+           attrNode.children?.push({
               id: `ai-${attrKey}-${val}`,
               label: val,
               payload: { parentGroup: attrKey, tag: val }
@@ -569,16 +608,15 @@ export const DocumentLibrary = ({
         });
       }
       
-      // Note: hasMissing was calculated dynamically above.
       if (treeConfig.target_column !== "custom_attributes") {
-          hasMissing = docs.some(doc => {
+          hasMissing = docsList.some(doc => {
              const list = (String((doc as any)[treeConfig.target_column] || "")).split(',').map(v => v.trim());
              return !list.includes(attrKey);
           });
       }
       
       if (hasMissing) {
-         attrNode.children.push({
+         attrNode.children?.push({
             id: `ai-${attrKey}-none`,
             label: '（指定なし）',
             payload: { parentGroup: attrKey, isNone: true }
@@ -589,7 +627,91 @@ export const DocumentLibrary = ({
     });
     
     return tree;
-  }, [treeConfig, docs]);
+  };
+
+  const finalTree = useMemo<TreeNode[]>(() => {
+    if (!treeConfig) return [];
+    
+    const getSubTree = (docsList: Document[], prefix: string, isArchivedVal: boolean): TreeNode[] => {
+      let rawTree: TreeNode[] = [];
+      if (treeConfig.grouping_type === "date") {
+        rawTree = buildDateTree(docsList);
+      } else if (treeConfig.grouping_type === "custom_attributes") {
+        rawTree = buildCustomAttrsTree(docsList);
+      } else if (treeConfig.grouping_type === "ai_extracted") {
+        rawTree = buildAIExtractedTree(docsList);
+      } else {
+        rawTree = buildGeneralTree(docsList);
+      }
+      
+      const addPrefixAndFilter = (nodes: TreeNode[]): TreeNode[] => {
+        return nodes.map(node => {
+          let payloadObj = node.payload;
+          if (typeof payloadObj !== "object" || payloadObj === null) {
+            payloadObj = { value: node.payload };
+          }
+          return {
+            ...node,
+            id: `${prefix}-${node.id}`,
+            payload: {
+              ...payloadObj,
+              isArchivedFilter: isArchivedVal
+            },
+            children: node.children ? addPrefixAndFilter(node.children) : undefined
+          };
+        });
+      };
+      return addPrefixAndFilter(rawTree);
+    };
+
+    const activeDocs = displayedDocs.filter(d => !d.is_archived);
+    const archivedDocs = displayedDocs.filter(d => !!d.is_archived);
+
+    if (showArchived) {
+      const activeSubTree = getSubTree(activeDocs, "active", false);
+      const archivedSubTree = getSubTree(archivedDocs, "archived", true);
+
+      const result: TreeNode[] = [];
+      if (activeSubTree.length > 0) {
+        result.push({
+          id: "root-active",
+          label: "アクティブ",
+          payload: { isArchivedFilter: false },
+          children: activeSubTree
+        });
+      }
+      if (archivedSubTree.length > 0) {
+        result.push({
+          id: "root-archived",
+          label: "アーカイブ",
+          payload: { isArchivedFilter: true },
+          children: archivedSubTree
+        });
+      }
+      return result;
+    } else {
+      return getSubTree(activeDocs, "active", false);
+    }
+  }, [treeConfig, displayedDocs, showArchived]);
+
+  // 選択されたノードのpayloadを逆引きして取得
+  const selectedTreeNode = useMemo(() => {
+    if (!selectedTreeNodeId) return null;
+    
+    const findNode = (nodes: TreeNode[]): TreeNode | null => {
+      for (const n of nodes) {
+        if (n.id === selectedTreeNodeId) return n;
+        if (n.children) {
+          const found = findNode(n.children);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+    
+    const node = findNode(finalTree);
+    return node ? node.payload : null;
+  }, [selectedTreeNodeId, finalTree]);
 
   const formatFileSize = (bytes?: number) => {
     if (bytes === undefined || bytes === null || bytes === 0) return "0 KB";
@@ -634,9 +756,38 @@ export const DocumentLibrary = ({
     draggedColRef.current = null;
   };
 
-  const filteredDocs = docs.filter(doc => {
+  const filteredDocs = displayedDocs.filter(doc => {
+    // 検索キーワードによる絞り込み
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim();
+      const keywords = q.split(/[\s　]+/).filter(Boolean).map(k => normalizeText(k));
+      if (keywords.length > 0) {
+        const isMatched = keywords.every(k => {
+          const matchFileName = normalizeText(doc.file_name).includes(k);
+          const matchCustomer = normalizeText(doc.customer_name || "").includes(k);
+          const matchTags = normalizeText(doc.tags || "").includes(k);
+          const matchCustomAttrs = doc.custom_attributes
+            ? Object.values(doc.custom_attributes).some(v => normalizeText(String(v)).includes(k))
+            : false;
+          return matchFileName || matchCustomer || matchTags || matchCustomAttrs;
+        });
+        if (!isMatched) return false;
+      }
+    }
+
     // ツリーフィルター
     if (!treeConfig || !selectedTreeNode) return true;
+
+    // isArchivedFilter が定義されている場合は、アーカイブステータスが一致するか確認
+    if (selectedTreeNode.isArchivedFilter !== undefined) {
+      const docArchived = !!doc.is_archived;
+      if (docArchived !== selectedTreeNode.isArchivedFilter) return false;
+    }
+
+    // 最上位の「アクティブ」または「アーカイブ」のルートフォルダ自体が選択された場合は、すべての配下ドキュメントを表示
+    if (selectedTreeNode.isArchivedFilter !== undefined && Object.keys(selectedTreeNode).filter(k => k !== "isArchivedFilter").length === 0) {
+      return true;
+    }
 
     const val = (doc as any)[treeConfig.target_column] as string || "";
 
@@ -697,7 +848,7 @@ export const DocumentLibrary = ({
 
     if (treeConfig.grouping_type === "extension") {
       const ext = "." + (val.split('.').pop()?.toLowerCase() || "");
-      return ext === selectedTreeNode;
+      return ext === selectedTreeNode.value;
     }
 
     if (treeConfig.grouping_type === "ai_extracted") {
@@ -731,22 +882,22 @@ export const DocumentLibrary = ({
            }
         } else {
            const attrList = Object.entries(attrs).filter(([_, v]) => v).map(([k, v]) => `${k}: ${v}`);
-           return attrList.includes(selectedTreeNode as string);
+           return attrList.includes(selectedTreeNode.value as string);
         }
       } else {
         const list = (val as any || "").toString().split(',').map((v: string) => v.trim());
-        const searchTag = typeof selectedTreeNode === 'object' ? selectedTreeNode.tag : selectedTreeNode;
+        const searchTag = typeof selectedTreeNode === 'object' ? (selectedTreeNode.tag || selectedTreeNode.value) : selectedTreeNode;
         return list.includes(searchTag as string);
       }
     }
 
     if (treeConfig.grouping_type === "comma_separated") {
       const list = (val as any || "").toString().split(',').map((v: string) => v.trim());
-      return list.includes(selectedTreeNode);
+      return list.includes(selectedTreeNode.value);
     }
 
     if (treeConfig.grouping_type === "exact_match") {
-      return val === selectedTreeNode;
+      return val === selectedTreeNode.value;
     }
 
     return true;
@@ -790,12 +941,76 @@ export const DocumentLibrary = ({
     return 0;
   });
 
+  const handleTreeNodeClick = (node: TreeNode) => {
+    const hasChildren = node.children && node.children.length > 0;
+    if (hasChildren) {
+      setExpandedAIGroups(prev => {
+        const isRoot = node.id === "root-active" || node.id === "root-archived";
+        const currentVal = prev[node.id];
+        return {
+          ...prev,
+          [node.id]: isRoot ? (currentVal === undefined ? false : !currentVal) : !currentVal
+        };
+      });
+    }
+    setSelectedTreeNodeId(node.id);
+  };
+
+  const renderTreeNode = (node: TreeNode, level: number = 0): React.ReactNode => {
+    const hasChildren = node.children && node.children.length > 0;
+    const isExpanded = (node.id === "root-active" || node.id === "root-archived")
+      ? (expandedAIGroups[node.id] !== false) // デフォルト true
+      : !!expandedAIGroups[node.id];
+      
+    const isSelected = selectedTreeNodeId === node.id;
+    const isRootFolder = node.id === "root-active" || node.id === "root-archived";
+    const labelClass = isRootFolder ? "text-indigo-400 font-bold" : "text-gray-300";
+    
+    let chevron = <div className="w-3 h-3 shrink-0" />;
+    if (hasChildren) {
+      chevron = isExpanded 
+        ? <ChevronDown className="w-3 h-3 shrink-0" /> 
+        : <ChevronRight className="w-3 h-3 shrink-0" />;
+    }
+
+    return (
+      <div key={node.id} className="space-y-0.5">
+        <div
+          onClick={() => handleTreeNodeClick(node)}
+          className={`flex items-center gap-1.5 pr-2 py-1.5 rounded text-xs cursor-pointer transition-colors ${isSelected ? 'bg-indigo-500/20 text-indigo-300 font-bold' : 'text-gray-400 hover:bg-white/5'}`}
+          style={{ paddingLeft: `${0.5 + level * 1.0}rem` }}
+        >
+          {chevron}
+          <Folder className={`w-3.5 h-3.5 shrink-0 ${isRootFolder ? 'text-indigo-500' : 'opacity-80'}`} />
+          <span className={`truncate ${labelClass}`}>{node.label}</span>
+        </div>
+        {isExpanded && hasChildren && (
+          <div className="space-y-0.5">
+            {node.children?.map(child => renderTreeNode(child, level + 1))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="flex-1 flex min-h-0 overflow-hidden">
       <div className="w-56 border-r border-white/5 flex flex-col min-h-0 bg-black/20 shrink-0">
         <div className="p-4 border-b border-white/5">
           <div className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider mb-2">AI動的分類ツリー</div>
           <div className="flex flex-col gap-2">
+            <label className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer select-none mb-1">
+              <input
+                type="checkbox"
+                checked={showArchived}
+                onChange={(e) => {
+                  setShowArchived(e.target.checked);
+                  setSelectedTreeNodeId(null);
+                }}
+                className="rounded border-white/10 bg-white/5 text-indigo-600 focus:ring-0 focus:ring-offset-0 w-3.5 h-3.5"
+              />
+              <span>アーカイブを含む</span>
+            </label>
             <select
               value={presetType}
               onChange={(e: React.ChangeEvent<HTMLSelectElement>) => handlePresetChange(e.target.value)}
@@ -838,159 +1053,59 @@ export const DocumentLibrary = ({
         
         <div className="flex-1 overflow-y-auto p-2 space-y-1 custom-scrollbar">
           <div 
-            onClick={() => setSelectedTreeNode(null)}
-            className={`flex items-center gap-2 px-2 py-1.5 rounded text-xs cursor-pointer transition-colors ${!selectedTreeNode ? 'bg-indigo-500/20 text-indigo-300' : 'text-gray-400 hover:bg-white/5'}`}
+            onClick={() => setSelectedTreeNodeId(null)}
+            className={`flex items-center gap-2 px-2 py-1.5 rounded text-xs cursor-pointer transition-colors ${!selectedTreeNodeId ? 'bg-indigo-500/20 text-indigo-300' : 'text-gray-400 hover:bg-white/5'}`}
           >
             <Folder className="w-3.5 h-3.5" />
             <span className="truncate">すべての資料</span>
           </div>
           
-          {treeConfig?.grouping_type === "date" ? (
-             Object.entries(dateTree).map(([year, months]) => (
-                <div key={year} className="space-y-0.5">
-                   <div 
-                      onClick={() => { toggleYear(year); setSelectedTreeNode({ year }); }}
-                      className={`flex items-center gap-1.5 pl-6 pr-2 py-1.5 rounded text-xs cursor-pointer transition-colors ${selectedTreeNode?.year === year && !selectedTreeNode?.month ? 'bg-indigo-500/20 text-indigo-300' : 'text-gray-400 hover:bg-white/5'}`}
-                   >
-                     {expandedYears[year] ? <ChevronDown className="w-3 h-3 shrink-0" /> : <ChevronRight className="w-3 h-3 shrink-0" />}
-                     <Folder className="w-3.5 h-3.5 shrink-0" />
-                     <span className="truncate">{year}</span>
-                   </div>
-                   {expandedYears[year] && Object.entries(months).map(([month, days]) => {
-                      const ymKey = `${year}-${month}`;
-                      return (
-                        <div key={ymKey} className="space-y-0.5">
-                          <div 
-                             onClick={() => { toggleMonth(ymKey); setSelectedTreeNode({ year, month }); }}
-                             className={`flex items-center gap-1.5 pl-10 pr-2 py-1.5 rounded text-xs cursor-pointer transition-colors ${selectedTreeNode?.year === year && selectedTreeNode?.month === month && !selectedTreeNode?.day ? 'bg-indigo-500/20 text-indigo-300' : 'text-gray-400 hover:bg-white/5'}`}
-                          >
-                            {expandedMonths[ymKey] ? <ChevronDown className="w-3 h-3 shrink-0 opacity-70" /> : <ChevronRight className="w-3 h-3 shrink-0 opacity-70" />}
-                            <Folder className="w-3.5 h-3.5 shrink-0 opacity-80" />
-                            <span className="truncate opacity-80">{month}</span>
-                          </div>
-                          {expandedMonths[ymKey] && days.map(day => (
-                            <div 
-                               key={`${ymKey}-${day}`}
-                               onClick={() => setSelectedTreeNode({ year, month, day })}
-                               className={`flex items-center gap-2 pl-14 pr-2 py-1.5 rounded text-xs cursor-pointer transition-colors ${selectedTreeNode?.year === year && selectedTreeNode?.month === month && selectedTreeNode?.day === day ? 'bg-indigo-500/20 text-indigo-300' : 'text-gray-400 hover:bg-white/5'}`}
-                            >
-                              <Folder className="w-3.5 h-3.5 shrink-0 opacity-60" />
-                              <span className="truncate opacity-60">{day}</span>
-                            </div>
-                          ))}
-                        </div>
-                      );
-                   })}
-                </div>
-             ))
-          ) : treeConfig?.grouping_type === "custom_attributes" ? (
-             (() => {
-                const renderTreeNodes = (nodes: any[], level = 0): any => {
-                   return nodes.map(node => {
-                      const isExpanded = expandedAIGroups[node.id];
-                      const p = node.payload;
-                      const sp = selectedTreeNode || {};
-                      const isSelected = sp.docType === p.docType &&
-                                         sp.attrKey === p.attrKey &&
-                                         sp.attrValue === p.attrValue &&
-                                         sp.binLabel === p.binLabel &&
-                                         sp.year === p.year &&
-                                         sp.month === p.month &&
-                                         sp.day === p.day &&
-                                         sp.isNone === p.isNone;
-                                         
-                      const hasChildren = node.children && node.children.length > 0;
-                      const opacityClass = level === 0 ? "opacity-100 font-bold" : level === 1 ? "opacity-90" : level === 2 ? "opacity-80" : level === 3 ? "opacity-70" : "opacity-60";
-                      
-                      return (
-                         <div key={node.id} className="space-y-0.5">
-                            <div 
-                               onClick={() => { toggleAIGroup(node.id); setSelectedTreeNode(node.payload); }}
-                               className={`flex items-center gap-1.5 pr-2 py-1.5 rounded text-xs cursor-pointer transition-colors ${isSelected ? 'bg-indigo-500/20 text-indigo-300' : 'text-gray-400 hover:bg-white/5'}`}
-                               style={{ paddingLeft: `${0.5 + level * 1.5}rem` }}
-                            >
-                              {hasChildren ? (
-                                isExpanded ? <ChevronDown className={`w-3 h-3 shrink-0 ${level > 0 ? 'opacity-70' : ''}`} /> : <ChevronRight className={`w-3 h-3 shrink-0 ${level > 0 ? 'opacity-70' : ''}`} />
-                              ) : (
-                                <div className="w-3 h-3 shrink-0" />
-                              )}
-                              <Folder className={`w-3.5 h-3.5 shrink-0 ${level > 0 ? 'opacity-70' : ''}`} />
-                              <span className={`truncate ${opacityClass} ${level === 0 ? 'text-indigo-300' : ''}`}>{node.label}</span>
-                            </div>
-                            {isExpanded && hasChildren && (
-                               <div className="space-y-0.5">
-                                 {renderTreeNodes(node.children, level + 1)}
-                               </div>
-                            )}
-                         </div>
-                      );
-                   });
-                };
-                return renderTreeNodes(customAttrsTree as any[]);
-             })()
-          ) : treeConfig?.grouping_type === "ai_extracted" && aiExtractedTree.length > 0 ? (
-             (() => {
-                const renderAITreeNodes = (nodes: any[], level = 0): any => {
-                   return nodes.map(node => {
-                      const isExpanded = expandedAIGroups[node.id];
-                      const p = node.payload;
-                      const sp = selectedTreeNode || {};
-                      const isSelected = sp.parentGroup === p.parentGroup &&
-                                         sp.tag === p.tag &&
-                                         sp.binLabel === p.binLabel &&
-                                         sp.isNone === p.isNone &&
-                                         sp.year === p.year &&
-                                         sp.month === p.month &&
-                                         sp.day === p.day;
-                                         
-                      const hasChildren = node.children && node.children.length > 0;
-                      const opacityClass = level === 0 ? "opacity-100 font-bold" : level === 1 ? "opacity-90" : level === 2 ? "opacity-80" : "opacity-70";
-                      
-                      return (
-                         <div key={node.id} className="space-y-0.5">
-                            <div 
-                               onClick={() => { toggleAIGroup(node.id); setSelectedTreeNode(node.payload); }}
-                               className={`flex items-center gap-1.5 pr-2 py-1.5 rounded text-xs cursor-pointer transition-colors ${isSelected ? 'bg-indigo-500/20 text-indigo-300' : 'text-gray-400 hover:bg-white/5'}`}
-                               style={{ paddingLeft: `${1.5 + level * 1.5}rem` }}
-                            >
-                              {hasChildren ? (
-                                isExpanded ? <ChevronDown className={`w-3 h-3 shrink-0 ${level > 0 ? 'opacity-70' : ''}`} /> : <ChevronRight className={`w-3 h-3 shrink-0 ${level > 0 ? 'opacity-70' : ''}`} />
-                              ) : (
-                                <div className="w-3 h-3 shrink-0" />
-                              )}
-                              <Folder className={`w-3.5 h-3.5 shrink-0 ${level > 0 ? 'opacity-70' : ''}`} />
-                              <span className={`truncate ${opacityClass} ${level === 0 ? 'text-indigo-300' : ''}`}>{node.label}</span>
-                            </div>
-                            {isExpanded && hasChildren && (
-                               <div className="space-y-0.5">
-                                 {renderAITreeNodes(node.children, level + 1)}
-                               </div>
-                            )}
-                         </div>
-                      );
-                   });
-                };
-                return renderAITreeNodes(aiExtractedTree);
-             })()
-          ) : (
-             treeNodes.map(node => (
-                <div 
-                  key={node}
-                  onClick={() => setSelectedTreeNode(node)}
-                  className={`flex items-center gap-2 pl-6 pr-2 py-1.5 rounded text-xs cursor-pointer transition-colors ${selectedTreeNode === node ? 'bg-indigo-500/20 text-indigo-300' : 'text-gray-400 hover:bg-white/5'}`}
-                >
-                  <Folder className="w-3.5 h-3.5 shrink-0" />
-                  <span className="truncate">{node}</span>
-                </div>
-             ))
-          )}
+          {finalTree.map(node => renderTreeNode(node))}
         </div>
       </div>
 
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-        <div className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider flex justify-between items-center">
+        <div className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider flex justify-between items-center gap-2">
           <span>資料ライブラリ</span>
-          <Search className="w-3 h-3" />
+          <div className="relative flex-1 max-w-[200px] flex items-center">
+            <input
+              ref={searchInputRef}
+              type="text"
+              placeholder="キーワード検索..."
+              defaultValue=""
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                const val = e.target.value;
+                setHasInputValue(!!val.trim());
+                if (!isComposing.current) {
+                  setSearchQuery(val);
+                }
+              }}
+              onCompositionStart={() => {
+                isComposing.current = true;
+              }}
+              onCompositionEnd={(e: React.CompositionEvent<HTMLInputElement>) => {
+                isComposing.current = false;
+                const val = e.currentTarget.value;
+                setSearchQuery(val);
+              }}
+              className="w-full bg-white/5 border border-white/10 rounded px-2 py-0.5 pl-6 text-[10px] text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            />
+            <Search className="w-3 h-3 absolute left-2 text-gray-500" />
+            {hasInputValue && (
+              <button 
+                onClick={() => {
+                  if (searchInputRef.current) {
+                    searchInputRef.current.value = "";
+                  }
+                  setHasInputValue(false);
+                  setSearchQuery("");
+                }} 
+                className="absolute right-2 text-gray-500 hover:text-white"
+              >
+                <X className="w-2.5 h-2.5" />
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="px-4 mb-4 flex gap-2">
@@ -1094,14 +1209,16 @@ export const DocumentLibrary = ({
                 <div className="text-xs font-medium text-gray-500">資料がありません</div>
               </div>
             ) : (
-              sortedDocs.map((doc: Document) => (
-                <div
-                  key={doc.id}
-                  onClick={() => onSelectDoc(doc)}
-                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left transition-all hover:bg-white/5 group 
-                    ${selectedDoc?.id === doc.id ? 'bg-white/10 border-l-2 border-indigo-500' : ''} 
-                    cursor-pointer`}
-                >
+              sortedDocs.map((doc: Document) => {
+                const isArchived = !!doc.is_archived;
+                return (
+                  <div
+                    key={doc.id}
+                    onClick={() => onSelectDoc(doc)}
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left transition-all group cursor-pointer
+                      ${selectedDoc?.id === doc.id ? 'bg-white/10 border-l-2 border-indigo-500' : ''} 
+                      ${isArchived ? 'opacity-40 hover:opacity-70 bg-white/5' : 'hover:bg-white/5'}`}
+                  >
                   <div className="shrink-0 w-5 flex items-center justify-center">
                     {doc.status === 'completed' ? (
                       <FileText className="w-5 h-5 text-green-500" />
@@ -1157,8 +1274,9 @@ export const DocumentLibrary = ({
                     })}
                   </div>
                 </div>
-              ))
-            )}
+              );
+            })
+          )}
           </div>
         </div>
       </div>

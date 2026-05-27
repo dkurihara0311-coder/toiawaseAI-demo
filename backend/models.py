@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, String, DateTime, ForeignKey, Text, Integer, JSON, Numeric
+from sqlalchemy import Column, String, DateTime, ForeignKey, Text, Integer, JSON, Numeric, Boolean
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 from pgvector.sqlalchemy import Vector
@@ -28,6 +28,7 @@ class Document(Base):
     summary = Column(Text)
     tags = Column(String)
     custom_attributes = Column(JSON, default=dict)
+    is_archived = Column(Boolean, default=False, nullable=False)
 
 class ProposedDocumentMetadata(Base):
     __tablename__ = "proposed_document_metadata"

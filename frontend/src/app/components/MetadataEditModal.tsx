@@ -18,6 +18,7 @@ export const MetadataEditModal = ({ isOpen, doc, onClose, onSuccess }: MetadataE
   const [tags, setTags] = useState<string[]>([]);
   const [customAttrs, setCustomAttrs] = useState<{ key: string; value: string }[]>([]);
   const [customerName, setCustomerName] = useState("");
+  const [isArchived, setIsArchived] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
   // Initializing API base URL
@@ -41,6 +42,7 @@ export const MetadataEditModal = ({ isOpen, doc, onClose, onSuccess }: MetadataE
       }
       setCustomAttrs(attrsArray);
       setCustomerName(doc.customer_name || "");
+      setIsArchived(!!doc.is_archived);
     }
   }, [isOpen, doc]);
 
@@ -79,7 +81,8 @@ export const MetadataEditModal = ({ isOpen, doc, onClose, onSuccess }: MetadataE
       await axios.patch(`${API_URL}/api/documents/${doc.id}/metadata`, {
         tags: tagsString,
         custom_attributes: attributesObj,
-        customer_name: customerName.trim()
+        customer_name: customerName.trim(),
+        is_archived: isArchived
       });
       onSuccess();
     } catch (e) {
@@ -123,9 +126,23 @@ export const MetadataEditModal = ({ isOpen, doc, onClose, onSuccess }: MetadataE
             <X className="w-6 h-6" />
           </button>
         </div>
-
         <div className="p-6 overflow-y-auto custom-scrollbar flex-1 space-y-8">
-          
+          {/* アーカイブ設定 */}
+          <div className="pb-6 border-b border-white/10">
+            <label className="flex items-start gap-3 cursor-pointer group">
+              <input
+                type="checkbox"
+                checked={isArchived}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setIsArchived(e.target.checked)}
+                className="mt-1 w-4 h-4 rounded border-gray-600 bg-white/5 text-indigo-600 focus:ring-indigo-500 focus:ring-offset-[#101018] focus:ring-offset-2 focus:outline-none transition-all"
+              />
+              <div>
+                <span className="text-sm font-bold text-white group-hover:text-indigo-300 transition-colors">この資料をアーカイブする</span>
+                <p className="text-xs text-gray-400 mt-1">アーカイブされた資料はチャットの検索対象から除外されます。また、「アーカイブを含む」がOFFの時は資料ライブラリに表示されなくなります。</p>
+              </div>
+            </label>
+          </div>
+
           {/* 関連企業 */}
           <div>
             <div className="text-xs font-bold text-gray-400 uppercase mb-2">関連組織 / 名称</div>
