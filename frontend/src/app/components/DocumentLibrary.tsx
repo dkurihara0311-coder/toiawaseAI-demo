@@ -4,7 +4,7 @@ import * as React from "react";
 import { useRef, useState, useMemo } from "react";
 import axios from "axios";
 // @ts-ignore
-import { FileText, Search, ChevronUp, ChevronDown, ChevronRight, X, RefreshCcw, Folder, Send, Loader2 } from "lucide-react";
+import { FileText, Search, ChevronUp, ChevronDown, ChevronRight, X, RefreshCcw, Folder, Send, Loader2, FileBox } from "lucide-react";
 // @ts-ignore
 const RefreshCw = RefreshCcw;
 import { Document, SortConfig, ColumnConfig } from "../types";
@@ -222,6 +222,23 @@ export const DocumentLibrary = ({
     return normalized;
   };
 
+  const isDocMatchedSearch = (doc: Document): boolean => {
+    if (!searchQuery.trim()) return false;
+    const q = searchQuery.trim();
+    const keywords = q.split(/[\s　]+/).filter(Boolean).map(k => normalizeText(k));
+    if (keywords.length === 0) return false;
+    
+    return keywords.every(k => {
+      const matchFileName = normalizeText(doc.file_name).includes(k);
+      const matchCustomer = normalizeText(doc.customer_name || "").includes(k);
+      const matchTags = normalizeText(doc.tags || "").includes(k);
+      const matchCustomAttrs = doc.custom_attributes
+        ? Object.values(doc.custom_attributes).some(v => normalizeText(String(v)).includes(k))
+        : false;
+      return matchFileName || matchCustomer || matchTags || matchCustomAttrs;
+    });
+  };
+
   const buildCustomAttrsTree = (docsList: Document[]): TreeNode[] => {
     if (treeConfig?.grouping_type !== "custom_attributes") return [];
     
@@ -426,207 +443,451 @@ export const DocumentLibrary = ({
   const buildAIExtractedTree = (docsList: Document[]): TreeNode[] => {
     if (treeConfig?.grouping_type !== "ai_extracted" || !treeConfig.extracted_tree) return [];
     
-    const tree: TreeNode[] = [];
-    
-    Object.keys(treeConfig.extracted_tree).forEach((attrKey) => {
-      const valsSet = new Set<string>();
-      let hasMissing = false;
-      
-      docsList.forEach(doc => {
-         let valStr = "";
-         if (treeConfig.target_column === "custom_attributes") {
-             const attrs = doc.custom_attributes || {};
-             valStr = String(attrs[attrKey] || "").trim();
-         } else {
-             const list = (String((doc as any)[treeConfig.target_column] || "")).split(',').map(v => v.trim());
-             if (list.includes(attrKey)) {
-                 valStr = attrKey;
-             }
-         }
-         
-         if (valStr) {
-             valsSet.add(valStr);
-         } else if (treeConfig.target_column === "custom_attributes") {
-             hasMissing = true;
-         }
-      });
-      
-      const vals = Array.from(valsSet);
-      const isAmountKey = /(金額|税|単価|価格|小計|合計|総額|料金|費用|代金|残高|額)/.test(attrKey);
-      let isDateKey = false;
-      
-      if (attrKey.includes("期限") || attrKey.includes("日")) {
-         isDateKey = true;
-      } else {
-         isDateKey = vals.some(v => /^\d{4}[-/年]\d{1,2}([-/月]\d{1,2}日?)?$/.test(v));
+    const buildRecursiveAITree = (
+      docsSubList: Document[],
+      treeNodeDef: any,
+      currentFilters: Record<string, string>
+    ): TreeNode[] => {
+      if (!treeNodeDef || typeof treeNodeDef !== "object" || Array.isArray(treeNodeDef)) {
+        return [];
       }
       
-      const attrNode: TreeNode = {
-        id: `ai-${attrKey}`,
-        label: attrKey,
-        payload: { parentGroup: attrKey },
-        children: []
-      };
-
-      if (isDateKey) {
-         const dateTree: Record<string, Record<string, Set<string>>> = {};
-         vals.forEach(v => {
-            const dateMatch = v.match(/^(\d{4})[-/年]?(\d{1,2})?[-/月]?(\d{1,2})?[日]?$/);
-            if (dateMatch) {
-               const y = dateMatch[1] + "年";
-               const m = dateMatch[2] ? dateMatch[2].padStart(2, '0') + "月" : "";
-               const d = dateMatch[3] ? dateMatch[3].padStart(2, '0') + "日" : "";
-               
-               if (!dateTree[y]) dateTree[y] = {};
-               if (m) {
-                  if (!dateTree[y][m]) dateTree[y][m] = new Set();
-                  if (d) dateTree[y][m].add(d);
-               }
+      const nodes: TreeNode[] = [];
+      
+      Object.keys(treeNodeDef).forEach(attrKey => {
+         const attrNodeId = `ai-${attrKey}-${Object.keys(currentFilters).map(k => `${k}_${currentFilters[k]}`).join('-')}`;
+         const valsSet: Set<string> = new Set();
+         let hasMissing = false;
+         
+         const docsFilteredByAncestors = docsSubList.filter(doc => {
+            const attrs = doc.custom_attributes || {};
+            return Object.entries(currentFilters).every(([fk, fv]) => {
+               return String(attrs[fk] || "").trim() === String(fv).trim();
+            });
+         });
+         
+         docsFilteredByAncestors.forEach(doc => {
+            let valStr = "";
+            if (treeConfig.target_column === "custom_attributes") {
+                const attrs = doc.custom_attributes || {};
+                valStr = String(attrs[attrKey] || "").trim();
             } else {
-               attrNode.children?.push({
-                  id: `ai-${attrKey}-${v}`,
-                  label: v,
-                  payload: { parentGroup: attrKey, tag: v }
-               });
+                const list = (String((doc as any)[treeConfig.target_column] || "")).split(',').map(v => v.trim());
+                if (list.includes(attrKey)) {
+                    valStr = attrKey;
+                }
+            }
+            
+            if (valStr) {
+                valsSet.add(valStr);
+            } else if (treeConfig.target_column === "custom_attributes") {
+                hasMissing = true;
             }
          });
          
-         Object.keys(dateTree).sort().reverse().forEach(year => {
-            const yearNode: TreeNode = {
-               id: `ai-${attrKey}-${year}`,
-               label: year,
-               payload: { parentGroup: attrKey, year },
-               children: []
-            };
-            Object.keys(dateTree[year]).sort((a, b) => parseInt(b) - parseInt(a)).forEach(month => {
-               const monthNode: TreeNode = {
-                  id: `ai-${attrKey}-${year}-${month}`,
-                  label: month,
-                  payload: { parentGroup: attrKey, year, month },
-                  children: []
-               };
-               Array.from(dateTree[year][month]).sort((a, b) => parseInt(b) - parseInt(a)).forEach(day => {
-                  monthNode.children?.push({
-                     id: `ai-${attrKey}-${year}-${month}-${day}`,
-                     label: day,
-                     payload: { parentGroup: attrKey, year, month, day }
+         const vals = Array.from(valsSet);
+         
+         const attrNode: TreeNode = {
+            id: attrNodeId,
+            label: attrKey,
+            payload: { 
+               parentGroup: attrKey, 
+               isAttrNode: true,
+               accumulatedFilters: { ...currentFilters },
+               documentIds: docsFilteredByAncestors.map(d => d.id)
+            },
+            children: []
+         };
+         
+         const subDef = treeNodeDef[attrKey];
+         const hasSubDef = subDef && typeof subDef === "object" && !Array.isArray(subDef) && Object.keys(subDef).length > 0;
+         
+         if (hasSubDef) {
+            // subDefのキーがすべて属性キー名である場合、値の階層が省略されたとみなす
+            const knownAttrKeys = ["金額", "期限", "日付", "文書種類", "顧客名", "取引先", "作成日", "ファイル名", "顧客", "拡張子", "容量", "サイズ", "会社", "会社名", "取引先名"];
+            const isMissingValueLayer = Object.keys(subDef).every(k => {
+               const kl = k.toLowerCase();
+               return knownAttrKeys.includes(k) || 
+                      kl.includes("date") || 
+                      kl.includes("amount") || 
+                      kl.includes("type") || 
+                      kl.includes("ext") || 
+                      kl.includes("size") || 
+                      kl.includes("customer") ||
+                      kl.includes("limit");
+            });
+
+            if (isMissingValueLayer) {
+               // 値の階層が省略されている場合、直接子属性を展開する
+               const childNodes = buildRecursiveAITree(docsFilteredByAncestors, subDef, currentFilters);
+               attrNode.children = childNodes;
+            } else {
+               const specificKeys = Object.keys(subDef).filter(k => k !== "*");
+               const hasSpecificKeys = specificKeys.length > 0;
+               
+               if (hasSpecificKeys) {
+                  // 1. 具体的なキー（例: "見積書"）にマッチするフォルダの作成
+                  specificKeys.forEach(specKey => {
+                     const matchedDocs = docsFilteredByAncestors.filter(doc => {
+                        let valStr = "";
+                        if (treeConfig.target_column === "custom_attributes") {
+                            const attrs = doc.custom_attributes || {};
+                            valStr = String(attrs[attrKey] || "").trim();
+                        } else {
+                            const list = (String((doc as any)[treeConfig.target_column] || "")).split(',').map(v => v.trim());
+                            if (list.includes(attrKey)) {
+                                valStr = attrKey;
+                            }
+                        }
+                        return valStr === specKey || valStr.includes(specKey) || specKey.includes(valStr);
+                     });
+                     
+                     const valNodeId = `${attrNodeId}-${specKey}`;
+                     const nextFilters = { ...currentFilters, [attrKey]: specKey };
+                     const valSubDef = subDef[specKey];
+                     
+                     const childNodes = valSubDef !== undefined 
+                        ? buildRecursiveAITree(matchedDocs, valSubDef, nextFilters)
+                        : [];
+                        
+                     attrNode.children?.push({
+                        id: valNodeId,
+                        label: specKey,
+                        payload: {
+                           parentGroup: attrKey,
+                           tag: specKey,
+                           accumulatedFilters: nextFilters,
+                           documentIds: matchedDocs.map(d => d.id)
+                        },
+                        children: childNodes
+                     });
+                  });
+                  
+                  // 2. マッチしなかったドキュメントを「○○以外」フォルダにまとめる
+                  const otherDocs = docsFilteredByAncestors.filter(doc => {
+                     let valStr = "";
+                     if (treeConfig.target_column === "custom_attributes") {
+                         const attrs = doc.custom_attributes || {};
+                         valStr = String(attrs[attrKey] || "").trim();
+                     } else {
+                         const list = (String((doc as any)[treeConfig.target_column] || "")).split(',').map(v => v.trim());
+                         if (list.includes(attrKey)) {
+                             valStr = attrKey;
+                         }
+                     }
+                     return !specificKeys.some(specKey => 
+                        valStr === specKey || valStr.includes(specKey) || specKey.includes(valStr)
+                     );
+                  });
+                  
+                  if (otherDocs.length > 0) {
+                     const otherLabel = `${specificKeys[0]}以外`;
+                     const valNodeId = `${attrNodeId}-others`;
+                     
+                     attrNode.children?.push({
+                        id: valNodeId,
+                        label: otherLabel,
+                        payload: {
+                           parentGroup: attrKey,
+                           isOthersNode: true,
+                           otherGroupKeys: specificKeys,
+                           accumulatedFilters: { ...currentFilters },
+                           documentIds: otherDocs.map(d => d.id)
+                        },
+                        children: []
+                     });
+                  }
+               } else {
+                  // 具体的な定義がない場合は、すべての属性値を個別に展開する
+                  vals.forEach(val => {
+                     const matchedDocs = docsFilteredByAncestors.filter(doc => {
+                        let valStr = "";
+                        if (treeConfig.target_column === "custom_attributes") {
+                            const attrs = doc.custom_attributes || {};
+                            valStr = String(attrs[attrKey] || "").trim();
+                        } else {
+                            const list = (String((doc as any)[treeConfig.target_column] || "")).split(',').map(v => v.trim());
+                            if (list.includes(attrKey)) {
+                                valStr = attrKey;
+                            }
+                        }
+                        return valStr === val;
+                     });
+
+                     const valNodeId = `${attrNodeId}-${val}`;
+                     const nextFilters = { ...currentFilters, [attrKey]: val };
+                     const valSubDef = subDef["*"];
+                     
+                     const childNodes = valSubDef !== undefined 
+                        ? buildRecursiveAITree(matchedDocs, valSubDef, nextFilters)
+                        : [];
+                     
+                     const valNode: TreeNode = {
+                        id: valNodeId,
+                        label: val,
+                        payload: {
+                           parentGroup: attrKey,
+                           tag: val,
+                           accumulatedFilters: nextFilters,
+                           documentIds: matchedDocs.map(d => d.id)
+                        },
+                        children: childNodes
+                     };
+                     attrNode.children?.push(valNode);
+                  });
+               }
+            }
+         } else {
+            const isAmountKey = /(金額|税|単価|価格|小計|合計|総額|料金|費用|代金|残高|額)/.test(attrKey);
+            let isDateKey = false;
+            
+            if (attrKey.includes("期限") || attrKey.includes("日")) {
+               isDateKey = true;
+            } else {
+               isDateKey = vals.some(v => /^\d{4}[-/年]\d{1,2}([-/月]\d{1,2}日?)?$/.test(v));
+            }
+            
+            if (isDateKey) {
+               const dateTree: Record<string, Record<string, Set<string>>> = {};
+               vals.forEach(v => {
+                  const dateMatch = v.match(/^(\d{4})[-/年]?(\d{1,2})?[-/月]?(\d{1,2})?[日]?$/);
+                  if (dateMatch) {
+                     const y = dateMatch[1] + "年";
+                     const m = dateMatch[2] ? dateMatch[2].padStart(2, '0') + "月" : "";
+                     const d = dateMatch[3] ? dateMatch[3].padStart(2, '0') + "日" : "";
+                     
+                     if (!dateTree[y]) dateTree[y] = {};
+                     if (m) {
+                        if (!dateTree[y][m]) dateTree[y][m] = new Set();
+                        if (d) dateTree[y][m].add(d);
+                     }
+                  } else {
+                     attrNode.children?.push({
+                        id: `${attrNodeId}-${v}`,
+                        label: v,
+                        payload: { 
+                           parentGroup: attrKey, 
+                           tag: v,
+                           accumulatedFilters: { ...currentFilters, [attrKey]: v },
+                           documentIds: docsFilteredByAncestors.filter(doc => String((doc.custom_attributes || {})[attrKey] || "").trim() === v).map(d => d.id)
+                        }
+                     });
+                  }
+               });
+               
+               Object.keys(dateTree).sort().reverse().forEach(year => {
+                  const yearDocs = docsFilteredByAncestors.filter(doc => {
+                     const v = String((doc.custom_attributes || {})[attrKey] || "").trim();
+                     const m = v.match(/^(\d{4})/);
+                     return m && (m[1] + "年") === year;
+                  });
+                  
+                  const yearNode: TreeNode = {
+                     id: `${attrNodeId}-${year}`,
+                     label: year,
+                     payload: { 
+                        parentGroup: attrKey, 
+                        year,
+                        accumulatedFilters: { ...currentFilters, [attrKey]: year },
+                        documentIds: yearDocs.map(d => d.id)
+                     },
+                     children: []
+                  };
+                  Object.keys(dateTree[year]).sort((a, b) => parseInt(b) - parseInt(a)).forEach(month => {
+                     const monthDocs = yearDocs.filter(doc => {
+                        const v = String((doc.custom_attributes || {})[attrKey] || "").trim();
+                        const m = v.match(/^\d{4}[-/年]?(\d{1,2})/);
+                        return m && (m[1].padStart(2, '0') + "月") === month;
+                     });
+                     
+                     const monthNode: TreeNode = {
+                        id: `${attrNodeId}-${year}-${month}`,
+                        label: month,
+                        payload: { 
+                           parentGroup: attrKey, 
+                           year, 
+                           month,
+                           accumulatedFilters: { ...currentFilters },
+                           documentIds: monthDocs.map(d => d.id)
+                        },
+                        children: []
+                     };
+                     Array.from(dateTree[year][month]).sort((a, b) => parseInt(b) - parseInt(a)).forEach(day => {
+                        const dayDocs = monthDocs.filter(doc => {
+                           const v = String((doc.custom_attributes || {})[attrKey] || "").trim();
+                           const m = v.match(/^\d{4}[-/年]?\d{1,2}[-/月]?(\d{1,2})/);
+                           return m && (m[1].padStart(2, '0') + "日") === day;
+                        });
+                        
+                        monthNode.children?.push({
+                           id: `${attrNodeId}-${year}-${month}-${day}`,
+                           label: day,
+                           payload: { 
+                              parentGroup: attrKey, 
+                              year, 
+                              month, 
+                              day,
+                              accumulatedFilters: { ...currentFilters },
+                               documentIds: dayDocs.map(d => d.id)
+                           }
+                        });
+                     });
+                     yearNode.children?.push(monthNode);
+                  });
+                  attrNode.children?.push(yearNode);
+               });
+            } else if (isAmountKey) {
+              const nums: number[] = [];
+              vals.forEach(v => {
+                 const numStr = String(v).replace(/[,¥円\s]/g, '');
+                 const num = parseFloat(numStr);
+                 if (!isNaN(num)) nums.push(num);
+              });
+              
+              let config: any = null;
+              if (nums.length >= 2) {
+                const min = Math.min(...nums);
+                const max = Math.max(...nums);
+                const range = max - min;
+                if (range > 0) {
+                  const roughStep = range / 4;
+                  const magnitude = Math.pow(10, Math.floor(Math.log10(roughStep || 1)));
+                  const step = Math.max(10000, Math.ceil(roughStep / magnitude) * magnitude);
+                  config = { step, min, max };
+                }
+              }
+
+              const formatAmount = (num: number) => {
+                if (num >= 10000) return `${num / 10000}万円`;
+                return `${num}円`;
+              };
+
+              const getAmountBinLabel = (num: number, config: any) => {
+                if (!config) return String(num);
+                const binStart = Math.floor(num / config.step) * config.step;
+                const binEnd = binStart + config.step;
+                return `${formatAmount(binStart)}〜${formatAmount(binEnd)}`;
+              };
+
+              const amountBins: Record<string, Set<string>> = {};
+              const nonAmounts: Set<string> = new Set();
+              
+              vals.forEach(v => {
+                 const numStr = strToNum(v);
+                 const num = parseFloat(numStr);
+                 if (!isNaN(num)) {
+                    const binLabel = getAmountBinLabel(num, config);
+                    if (!amountBins[binLabel]) amountBins[binLabel] = new Set();
+                    amountBins[binLabel].add(v);
+                 } else {
+                    nonAmounts.add(v);
+                 }
+              });
+
+              Object.keys(amountBins).sort((a, b) => {
+                  const numA = parseFloat(a.replace(/[^0-9.]/g, '')) || 0;
+                  const numB = parseFloat(b.replace(/[^0-9.]/g, '')) || 0;
+                  return numA - numB;
+               }).forEach(bin => {
+                  const binVals = Array.from(amountBins[bin]);
+                  const binDocs = docsFilteredByAncestors.filter(doc => {
+                     const v = String((doc.custom_attributes || {})[attrKey] || "").trim();
+                     return binVals.includes(v);
+                  });
+                  
+                  const binNode: TreeNode = {
+                     id: `${attrNodeId}-${bin}`,
+                     label: bin,
+                     payload: { 
+                        parentGroup: attrKey, 
+                        binLabel: bin, 
+                        binValues: binVals,
+                        accumulatedFilters: { ...currentFilters },
+                        documentIds: binDocs.map(d => d.id)
+                     },
+                     children: []
+                  };
+                  binVals.sort((a, b) => {
+                     const vA = parseFloat(strToNum(a as string)) || 0;
+                     const vB = parseFloat(strToNum(b as string)) || 0;
+                     return vA - vB;
+                  }).forEach(val => {
+                     const valDocs = binDocs.filter(doc => {
+                        const v = String((doc.custom_attributes || {})[attrKey] || "").trim();
+                        return v === val;
+                     });
+                     binNode.children?.push({
+                        id: `${attrNodeId}-${bin}-${val}`,
+                        label: val,
+                        payload: { 
+                           parentGroup: attrKey, 
+                           tag: val, 
+                           binLabel: bin, 
+                           binValues: binVals,
+                           accumulatedFilters: { ...currentFilters, [attrKey]: val },
+                           documentIds: valDocs.map(d => d.id)
+                        }
+                     });
+                  });
+                  attrNode.children?.push(binNode);
+               });
+               
+               if (nonAmounts.size > 0) {
+                  Array.from(nonAmounts).sort().forEach(val => {
+                     const valDocs = docsFilteredByAncestors.filter(doc => {
+                        const v = String((doc.custom_attributes || {})[attrKey] || "").trim();
+                        return v === val;
+                     });
+                     attrNode.children?.push({
+                        id: `${attrNodeId}-non-${val}`,
+                        label: val,
+                        payload: { 
+                           parentGroup: attrKey, 
+                           tag: val,
+                           accumulatedFilters: { ...currentFilters, [attrKey]: val },
+                           documentIds: valDocs.map(d => d.id)
+                        }
+                     });
+                  });
+               }
+            } else {
+               vals.sort().forEach(val => {
+                  const valDocs = docsFilteredByAncestors.filter(doc => {
+                     const v = String((doc.custom_attributes || {})[attrKey] || "").trim();
+                     return v === val;
+                  });
+                  attrNode.children?.push({
+                     id: `${attrNodeId}-${val}`,
+                     label: val,
+                     payload: { 
+                        parentGroup: attrKey, 
+                        tag: val,
+                        accumulatedFilters: { ...currentFilters, [attrKey]: val }
+                     }
                   });
                });
-               yearNode.children?.push(monthNode);
-            });
-            attrNode.children?.push(yearNode);
-         });
-      } else if (isAmountKey) {
-        const nums: number[] = [];
-        vals.forEach(v => {
-           const numStr = String(v).replace(/[,¥円\s]/g, '');
-           const num = parseFloat(numStr);
-           if (!isNaN(num)) nums.push(num);
-        });
-        
-        let config: any = null;
-        if (nums.length >= 2) {
-          const min = Math.min(...nums);
-          const max = Math.max(...nums);
-          const range = max - min;
-          if (range > 0) {
-            const roughStep = range / 4;
-            const magnitude = Math.pow(10, Math.floor(Math.log10(roughStep || 1)));
-            const step = Math.max(10000, Math.ceil(roughStep / magnitude) * magnitude);
-            config = { step, min, max };
-          }
-        }
-
-        const formatAmount = (num: number) => {
-          if (num >= 10000) return `${num / 10000}万円`;
-          return `${num}円`;
-        };
-
-        const getAmountBinLabel = (num: number, config: any) => {
-          if (!config) return String(num);
-          const binStart = Math.floor(num / config.step) * config.step;
-          const binEnd = binStart + config.step;
-          return `${formatAmount(binStart)}〜${formatAmount(binEnd)}`;
-        };
-
-        const amountBins: Record<string, Set<string>> = {};
-        const nonAmounts: Set<string> = new Set();
-        
-        vals.forEach(v => {
-          const numStr = String(v).replace(/[,¥円\s]/g, '');
-          const num = parseFloat(numStr);
-          if (!isNaN(num)) {
-             const binLabel = getAmountBinLabel(num, config);
-             if (!amountBins[binLabel]) amountBins[binLabel] = new Set();
-             amountBins[binLabel].add(v);
-          } else {
-             nonAmounts.add(v);
-          }
-        });
-
-        Object.keys(amountBins).sort((a, b) => {
-           const numA = parseFloat(a.replace(/[^0-9.]/g, '')) || 0;
-           const numB = parseFloat(b.replace(/[^0-9.]/g, '')) || 0;
-           return numA - numB;
-        }).forEach(bin => {
-           const binNode: TreeNode = {
-              id: `ai-${attrKey}-${bin}`,
-              label: bin,
-              payload: { parentGroup: attrKey, binLabel: bin, binValues: Array.from(amountBins[bin]) },
-              children: []
-           };
-           Array.from(amountBins[bin]).sort((a, b) => {
-              const vA = parseFloat(strToNum(a as string)) || 0;
-              const vB = parseFloat(strToNum(b as string)) || 0;
-              return vA - vB;
-           }).forEach(val => {
-              binNode.children?.push({
-                 id: `ai-${attrKey}-${bin}-${val}`,
-                 label: val,
-                 payload: { parentGroup: attrKey, tag: val, binLabel: bin, binValues: Array.from(amountBins[bin]) }
-              });
-           });
-           attrNode.children?.push(binNode);
-        });
-        
-        if (nonAmounts.size > 0) {
-           Array.from(nonAmounts).sort().forEach(val => {
-              attrNode.children?.push({
-                 id: `ai-${attrKey}-non-${val}`,
-                 label: val,
-                 payload: { parentGroup: attrKey, tag: val }
-              });
-           });
-        }
-      } else {
-        vals.sort().forEach(val => {
-           attrNode.children?.push({
-              id: `ai-${attrKey}-${val}`,
-              label: val,
-              payload: { parentGroup: attrKey, tag: val }
-           });
-        });
-      }
+            }
+            
+            if (hasMissing) {
+               attrNode.children?.push({
+                  id: `${attrNodeId}-none`,
+                  label: '（指定なし）',
+                  payload: { 
+                     parentGroup: attrKey, 
+                     isNone: true,
+                     accumulatedFilters: { ...currentFilters }
+                  }
+               });
+            }
+         }
+         
+         nodes.push(attrNode);
+      });
       
-      if (treeConfig.target_column !== "custom_attributes") {
-          hasMissing = docsList.some(doc => {
-             const list = (String((doc as any)[treeConfig.target_column] || "")).split(',').map(v => v.trim());
-             return !list.includes(attrKey);
-          });
-      }
-      
-      if (hasMissing) {
-         attrNode.children?.push({
-            id: `ai-${attrKey}-none`,
-            label: '（指定なし）',
-            payload: { parentGroup: attrKey, isNone: true }
-         });
-      }
-      
-      tree.push(attrNode);
-    });
+      return nodes;
+    };
     
-    return tree;
+    return buildRecursiveAITree(docsList, treeConfig.extracted_tree, {});
   };
 
   const finalTree = useMemo<TreeNode[]>(() => {
@@ -757,24 +1018,6 @@ export const DocumentLibrary = ({
   };
 
   const filteredDocs = displayedDocs.filter(doc => {
-    // 検索キーワードによる絞り込み
-    if (searchQuery.trim()) {
-      const q = searchQuery.trim();
-      const keywords = q.split(/[\s　]+/).filter(Boolean).map(k => normalizeText(k));
-      if (keywords.length > 0) {
-        const isMatched = keywords.every(k => {
-          const matchFileName = normalizeText(doc.file_name).includes(k);
-          const matchCustomer = normalizeText(doc.customer_name || "").includes(k);
-          const matchTags = normalizeText(doc.tags || "").includes(k);
-          const matchCustomAttrs = doc.custom_attributes
-            ? Object.values(doc.custom_attributes).some(v => normalizeText(String(v)).includes(k))
-            : false;
-          return matchFileName || matchCustomer || matchTags || matchCustomAttrs;
-        });
-        if (!isMatched) return false;
-      }
-    }
-
     // ツリーフィルター
     if (!treeConfig || !selectedTreeNode) return true;
 
@@ -852,43 +1095,29 @@ export const DocumentLibrary = ({
     }
 
     if (treeConfig.grouping_type === "ai_extracted") {
-      if (treeConfig.target_column === "custom_attributes") {
-        const attrs = doc.custom_attributes || {};
-        if (selectedTreeNode && typeof selectedTreeNode === 'object') {
-           if (selectedTreeNode.binLabel && selectedTreeNode.binValues) {
-               const valStr = String(attrs[selectedTreeNode.parentGroup] || "").trim();
-               return selectedTreeNode.binValues.includes(valStr);
-           } else if (selectedTreeNode.isNone) {
-               const val = attrs[selectedTreeNode.parentGroup];
-               return val === undefined || val === null || String(val).trim() === "";
-           } else if (selectedTreeNode.year) {
-               const valStr = String(attrs[selectedTreeNode.parentGroup] || "").trim();
-               const dateMatch = valStr.match(/^(\d{4})[-/年]?(\d{1,2})?[-/月]?(\d{1,2})?[日]?$/);
-               if (!dateMatch) return false;
-               const y = dateMatch[1] + "年";
-               const m = dateMatch[2] ? dateMatch[2].padStart(2, '0') + "月" : "";
-               const d = dateMatch[3] ? dateMatch[3].padStart(2, '0') + "日" : "";
-               
-               if (selectedTreeNode.year !== y) return false;
-               if (selectedTreeNode.month && selectedTreeNode.month !== m) return false;
-               if (selectedTreeNode.day && selectedTreeNode.day !== d) return false;
-               return true;
-           } else if (selectedTreeNode.parentGroup && selectedTreeNode.tag) {
-               return String(attrs[selectedTreeNode.parentGroup] || "").trim() === String(selectedTreeNode.tag).trim();
-           } else if (selectedTreeNode.parentGroup && !selectedTreeNode.year && !selectedTreeNode.binLabel && !selectedTreeNode.tag && !selectedTreeNode.isNone) {
-               return true;
-           } else {
-               return false;
-           }
-        } else {
-           const attrList = Object.entries(attrs).filter(([_, v]) => v).map(([k, v]) => `${k}: ${v}`);
-           return attrList.includes(selectedTreeNode.value as string);
-        }
-      } else {
-        const list = (val as any || "").toString().split(',').map((v: string) => v.trim());
-        const searchTag = typeof selectedTreeNode === 'object' ? (selectedTreeNode.tag || selectedTreeNode.value) : selectedTreeNode;
-        return list.includes(searchTag as string);
-      }
+       /* console.log("AI Extracted Filter Root Call:", {
+          selectedNodeId: selectedTreeNode?.id,
+          selectedNodeLabel: selectedTreeNode?.label,
+          selectedNodePayload: selectedTreeNode?.payload,
+          docId: doc.id,
+          docName: doc.file_name
+       });
+       */ if (selectedTreeNode && typeof selectedTreeNode === 'object') {
+          const documentIds = (selectedTreeNode as any).documentIds;
+           if (documentIds) {
+             const stringifiedIds = documentIds.map((id: any) => String(id));
+             const docIdStr = String(doc.id);
+             const isMatch = stringifiedIds.includes(docIdStr);
+             /* console.log("AI Extracted Filter Match Detail:", {
+                docName: doc.file_name,
+                stringifiedIds,
+                docIdStr,
+                isMatch
+             }); */
+             return isMatch;
+          }
+       }
+       return false;
     }
 
     if (treeConfig.grouping_type === "comma_separated") {
@@ -904,6 +1133,14 @@ export const DocumentLibrary = ({
   });
 
   const sortedDocs = [...filteredDocs].sort((a, b) => {
+    if (searchQuery.trim()) {
+      const matchA = isDocMatchedSearch(a) ? 1 : 0;
+      const matchB = isDocMatchedSearch(b) ? 1 : 0;
+      if (matchA !== matchB) {
+        return matchB - matchA;
+      }
+    }
+
     for (const config of sortConfigs) {
       let comparison = 0;
       const { key, order } = config;
@@ -1088,7 +1325,7 @@ export const DocumentLibrary = ({
                 const val = e.currentTarget.value;
                 setSearchQuery(val);
               }}
-              className="w-full bg-white/5 border border-white/10 rounded px-2 py-0.5 pl-6 text-[10px] text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              className="w-full bg-white/5 border border-white/10 rounded-lg py-2 px-2 pl-6 text-xs text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
             />
             <Search className="w-3 h-3 absolute left-2 text-gray-500" />
             {hasInputValue && (
@@ -1114,7 +1351,7 @@ export const DocumentLibrary = ({
             onChange={(e: React.ChangeEvent<HTMLSelectElement>) => onSelectTag(e.target.value)}
             className="w-1/2 p-2 bg-white/5 border border-white/10 rounded-lg text-xs text-gray-300 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all appearance-none cursor-pointer"
           >
-            <option value="" className="bg-[#0a0a20]">すべての属性を表示</option>
+            <option value="" className="bg-[#0a0a20]">マークする属性を選択</option>
             {tags.map((tag) => (
               <option key={tag} value={tag} className="bg-[#0a0a20]">#{tag}</option>
             ))}
@@ -1124,7 +1361,7 @@ export const DocumentLibrary = ({
             onChange={(e: React.ChangeEvent<HTMLSelectElement>) => onSelectOrg(e.target.value)}
             className="w-1/2 p-2 bg-white/5 border border-white/10 rounded-lg text-xs text-gray-300 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all appearance-none cursor-pointer"
           >
-            <option value="" className="bg-[#0a0a20]">すべての企業を表示</option>
+            <option value="" className="bg-[#0a0a20]">マークする企業を選択</option>
             {orgs.map((org) => (
               <option key={org} value={org} className="bg-[#0a0a20]">{org}</option>
             ))}
@@ -1211,16 +1448,44 @@ export const DocumentLibrary = ({
             ) : (
               sortedDocs.map((doc: Document) => {
                 const isArchived = !!doc.is_archived;
+                const isMatched = isDocMatchedSearch(doc);
+                
+                const hasSearch = searchQuery.trim() !== "";
+                let bgClass = "hover:bg-white/5";
+                if (selectedDoc?.id === doc.id) {
+                  if (hasSearch) {
+                    if (isMatched) {
+                      bgClass = "bg-white/10 border-l-2 border-indigo-400 border border-indigo-500/80";
+                    } else {
+                      bgClass = "bg-white/10 border-l-2 border-gray-600";
+                    }
+                  } else {
+                    bgClass = "bg-white/10 border-l-2 border-indigo-500";
+                  }
+                } else if (hasSearch) {
+                  if (isMatched) {
+                    bgClass = isArchived 
+                      ? "bg-indigo-950/20 border border-indigo-500/60 opacity-70 hover:bg-indigo-950/40 hover:opacity-85"
+                      : "bg-indigo-950/40 border border-indigo-500/40 hover:bg-indigo-950/60";
+                  } else {
+                    bgClass = isArchived
+                      ? "opacity-35 hover:opacity-55 bg-white/5"
+                      : "opacity-25 hover:opacity-45";
+                  }
+                } else if (isArchived) {
+                  bgClass = "opacity-45 hover:opacity-75 bg-white/5";
+                }
+
                 return (
                   <div
                     key={doc.id}
                     onClick={() => onSelectDoc(doc)}
-                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left transition-all group cursor-pointer
-                      ${selectedDoc?.id === doc.id ? 'bg-white/10 border-l-2 border-indigo-500' : ''} 
-                      ${isArchived ? 'opacity-40 hover:opacity-70 bg-white/5' : 'hover:bg-white/5'}`}
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left transition-all group cursor-pointer ${bgClass}`}
                   >
                   <div className="shrink-0 w-5 flex items-center justify-center">
-                    {doc.status === 'completed' ? (
+                    {isArchived ? (
+                      <FileBox className="w-4 h-4 text-indigo-400/70" title="アーカイブ済" />
+                    ) : doc.status === 'completed' ? (
                       <FileText className="w-5 h-5 text-green-500" />
                     ) : doc.status === 'failed' ? (
                       <X className="w-5 h-5 text-red-500" strokeWidth={3} />
@@ -1241,7 +1506,7 @@ export const DocumentLibrary = ({
                       switch(col.key) {
                         case "file_name": return (
                           <div key={col.key} className={`${cellClass} flex items-center`}>
-                            <div className="text-sm font-medium truncate text-white leading-tight">{doc.file_name}</div>
+                            <div className={`text-sm font-medium truncate leading-tight ${isArchived ? 'text-gray-400' : 'text-white'}`}>{doc.file_name}</div>
                           </div>
                         );
                         case "created_at": return (

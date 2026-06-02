@@ -473,3 +473,4 @@ def update_metadata(document_id: uuid.UUID, payload: UpdateMetadataRequest, db: 
         doc.is_archived = payload.is_archived
     db.commit()
     return {"status": "success"}
+
