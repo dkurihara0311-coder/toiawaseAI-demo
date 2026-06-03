@@ -17,6 +17,13 @@ import { ReextractReviewModal } from "./components/ReextractReviewModal";
 import { Document, Message, SortConfig, ColumnConfig } from "./types";
 
 export default function Dashboard() {
+  const userId = "default";
+  const sidebarWidthKey = userId ? `tank_sidebar_width_${userId}` : "tank_sidebar_width";
+  const sortConfigsKey = userId ? `tank_sort_configs_${userId}` : "tank_sort_configs";
+  const columnOrderKey = userId ? `tank_column_order_${userId}` : "tank_column_order";
+  const selectedTagKey = userId ? `tank_selected_tag_${userId}` : "tank_selected_tag";
+  const selectedOrgKey = userId ? `tank_selected_org_${userId}` : "tank_selected_org";
+
   // --- States ---
   const [docs, setDocs] = useState<Document[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -79,10 +86,10 @@ export default function Dashboard() {
 
     
     try {
-      const savedWidth = localStorage.getItem("tank_sidebar_width");
+      const savedWidth = localStorage.getItem(sidebarWidthKey);
       if (savedWidth) setSidebarWidth(parseInt(savedWidth, 10));
 
-      const savedSort = localStorage.getItem("tank_sort_configs");
+      const savedSort = localStorage.getItem(sortConfigsKey);
       if (savedSort) {
         try {
           const parsed = JSON.parse(savedSort);
@@ -95,7 +102,7 @@ export default function Dashboard() {
         setSortConfigs(initialSort);
       }
       
-      const savedColumns = localStorage.getItem("tank_column_order");
+      const savedColumns = localStorage.getItem(columnOrderKey);
       if (savedColumns) {
         try {
           const parsed = JSON.parse(savedColumns);
@@ -116,9 +123,9 @@ export default function Dashboard() {
         } catch (e) { console.error(e); }
       }
       
-      const savedTag = localStorage.getItem("tank_selected_tag");
+      const savedTag = localStorage.getItem(selectedTagKey);
       if (savedTag) setSelectedTag(savedTag);
-      const savedOrg = localStorage.getItem("tank_selected_org");
+      const savedOrg = localStorage.getItem(selectedOrgKey);
       if (savedOrg) setSelectedOrg(savedOrg);
       
     } catch (error) {
@@ -135,18 +142,18 @@ export default function Dashboard() {
     return () => {
       isCancelled = true;
     };
-  }, []);
+  }, [sidebarWidthKey, sortConfigsKey, columnOrderKey, selectedTagKey, selectedOrgKey]);
 
   useEffect(() => {
     if (isRestored) {
-      localStorage.setItem("tank_sidebar_width", sidebarWidth.toString());
-      localStorage.setItem("tank_sort_configs", JSON.stringify(sortConfigs));
+      localStorage.setItem(sidebarWidthKey, sidebarWidth.toString());
+      localStorage.setItem(sortConfigsKey, JSON.stringify(sortConfigs));
       // カラム設定は「キーの並び順」だけを保存し、表示内容そのものはコード側を正とする
-      localStorage.setItem("tank_column_order", JSON.stringify(columnOrder.map(c => c.key)));
-      localStorage.setItem("tank_selected_tag", selectedTag);
-      localStorage.setItem("tank_selected_org", selectedOrg);
+      localStorage.setItem(columnOrderKey, JSON.stringify(columnOrder.map(c => c.key)));
+      localStorage.setItem(selectedTagKey, selectedTag);
+      localStorage.setItem(selectedOrgKey, selectedOrg);
     }
-  }, [sidebarWidth, sortConfigs, columnOrder, selectedTag, selectedOrg, isRestored]);
+  }, [sidebarWidth, sortConfigs, columnOrder, selectedTag, selectedOrg, isRestored, sidebarWidthKey, sortConfigsKey, columnOrderKey, selectedTagKey, selectedOrgKey]);
 
   // --- Effects: Data & UX ---
   useEffect(() => {
@@ -396,6 +403,7 @@ export default function Dashboard() {
           sortConfigs={sortConfigs} onSort={handleSort}
           columnOrder={columnOrder} setColumnOrder={setColumnOrder}
           setIsHeaderDragging={setIsHeaderDragging}
+          userId={userId}
         />
 
         <div className="p-8 flex justify-start border-t border-white/5 mt-auto">

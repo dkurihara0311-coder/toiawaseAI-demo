@@ -34,6 +34,7 @@ interface DocumentLibraryProps {
   columnOrder: ColumnConfig[];
   setColumnOrder: (order: ColumnConfig[]) => void;
   setIsHeaderDragging: (isDragging: boolean) => void;
+  userId?: string;
 }
 
 export const DocumentLibrary = ({
@@ -54,7 +55,8 @@ export const DocumentLibrary = ({
   onSort,
   columnOrder,
   setColumnOrder,
-  setIsHeaderDragging
+  setIsHeaderDragging,
+  userId
 }: DocumentLibraryProps) => {
   const draggedColRef = useRef<number | null>(null);
 
@@ -73,6 +75,46 @@ export const DocumentLibrary = ({
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   const toggleAIGroup = (g: string) => setExpandedAIGroups(prev => ({...prev, [g]: !prev[g]}));
+
+  const [isRestored, setIsRestored] = useState(false);
+
+  // 初回マウント時（isMounted が true になった時）に localStorage から復元
+  React.useEffect(() => {
+    if (!isMounted) return;
+    
+    const storageKey = userId ? `tank_tree_state_${userId}` : "tank_tree_state_default";
+    const saved = localStorage.getItem(storageKey);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed.presetType !== undefined) setPresetType(parsed.presetType);
+        if (parsed.themeInput !== undefined) setThemeInput(parsed.themeInput);
+        if (parsed.treeConfig !== undefined) setTreeConfig(parsed.treeConfig);
+        if (parsed.selectedTreeNodeId !== undefined) setSelectedTreeNodeId(parsed.selectedTreeNodeId);
+        if (parsed.expandedAIGroups !== undefined) setExpandedAIGroups(parsed.expandedAIGroups);
+        if (parsed.showArchived !== undefined) setShowArchived(parsed.showArchived);
+      } catch (e) {
+        console.error("Failed to parse saved tree state:", e);
+      }
+    }
+    setIsRestored(true);
+  }, [isMounted, userId]);
+
+  // 状態変更時に localStorage へ自動保存
+  React.useEffect(() => {
+    if (!isMounted || !isRestored) return;
+    
+    const storageKey = userId ? `tank_tree_state_${userId}` : "tank_tree_state_default";
+    const stateToSave = {
+      presetType,
+      themeInput,
+      treeConfig,
+      selectedTreeNodeId,
+      expandedAIGroups,
+      showArchived
+    };
+    localStorage.setItem(storageKey, JSON.stringify(stateToSave));
+  }, [presetType, themeInput, treeConfig, selectedTreeNodeId, expandedAIGroups, showArchived, isMounted, isRestored, userId]);
 
   const API_URL = (() => {
     const baseUrl = (typeof process !== "undefined" && process.env?.NEXT_PUBLIC_API_URL) 
