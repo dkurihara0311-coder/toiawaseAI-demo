@@ -4,11 +4,10 @@ from sqlalchemy.orm import Session
 import models
 from services.ai_service import get_embeddings_batch, extract_doc_metadata
 from services.storage_service import storage_service
-
-# Standard libraries for various formats
-import docx
-import openpyxl
-from pypdf import PdfReader
+from services.pdf_service import extract_text_from_pdf
+from services.docx_service import extract_text_from_docx
+from services.xlsx_service import extract_text_from_xlsx
+from services.text_service import extract_text_from_text
 
 def analyze_document(document_id: str, db: Session):
     """Extract text from various formats (PDF, DOCX, XLSX, TXT), chunk it, embed it, and save to DB."""
@@ -43,59 +42,13 @@ def analyze_document(document_id: str, db: Session):
         print(f"DEBUG: Extracting text from {doc.file_name} (format: {file_ext})...")
 
         if file_ext == "pdf":
-            reader = PdfReader(file_path)
-            for i, page in enumerate(reader.pages):
-                text = page.extract_text()
-                if text.strip():
-                    chunks.append(text)
-        
+            chunks = extract_text_from_pdf(file_path)
         elif file_ext == "docx":
-            doc_obj = docx.Document(file_path)
-            # Group paragraphs into chunks (already implemented below)
-            # Group paragraphs into chunks to avoid too many small chunks
-            full_text = []
-            for para in doc_obj.paragraphs:
-                if para.text.strip():
-                    full_text.append(para.text)
-            
-            # Simple chunking by paragraph groups or character count
-            current_chunk = ""
-            for text in full_text:
-                if len(current_chunk) + len(text) > 1500:
-                    chunks.append(current_chunk)
-                    current_chunk = text
-                else:
-                    current_chunk += "\n" + text if current_chunk else text
-            if current_chunk:
-                chunks.append(current_chunk)
-
+            chunks = extract_text_from_docx(file_path)
         elif file_ext == "xlsx":
-            wb = openpyxl.load_workbook(file_path, data_only=True)
-            for sheet in wb.worksheets:
-                sheet_data = []
-                for row in sheet.iter_rows(values_only=True):
-                    # Filter out empty rows
-                    if any(cell is not None for cell in row):
-                        row_text = " | ".join([str(cell) if cell is not None else "" for cell in row])
-                        sheet_data.append(row_text)
-                
-                if sheet_data:
-                    # One chunk per sheet or split if too large
-                    sheet_text = f"Sheet: {sheet.title}\n" + "\n".join(sheet_data)
-                    # For very large sheets, we might need smaller chunks, but for MVP one per sheet is a start
-                    if len(sheet_text) > 5000:
-                        # Simple split
-                        for i in range(0, len(sheet_text), 4000):
-                            chunks.append(sheet_text[i:i+4000])
-                    else:
-                        chunks.append(sheet_text)
-
+            chunks = extract_text_from_xlsx(file_path)
         elif file_ext in ["txt", "md"]:
-            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                content = f.read()
-                # Split by roughly 1500 characters with some overlap or line-based
-                for i in range(0, len(content), 1500):
-                    chunks.append(content[i:i+1500])
+            chunks = extract_text_from_text(file_path)
 
         print(f"DEBUG: Extracted {len(chunks)} chunks of text.")
         
@@ -174,51 +127,13 @@ def reextract_document_tags(document_id: str, db: Session):
         print(f"DEBUG: Re-extracting text from {doc.file_name} (format: {file_ext})...")
 
         if file_ext == "pdf":
-            reader = PdfReader(file_path)
-            for i, page in enumerate(reader.pages):
-                text = page.extract_text()
-                if text.strip():
-                    chunks.append(text)
-        
+            chunks = extract_text_from_pdf(file_path)
         elif file_ext == "docx":
-            doc_obj = docx.Document(file_path)
-            full_text = []
-            for para in doc_obj.paragraphs:
-                if para.text.strip():
-                    full_text.append(para.text)
-            
-            current_chunk = ""
-            for text in full_text:
-                if len(current_chunk) + len(text) > 1500:
-                    chunks.append(current_chunk)
-                    current_chunk = text
-                else:
-                    current_chunk += "\n" + text if current_chunk else text
-            if current_chunk:
-                chunks.append(current_chunk)
-
+            chunks = extract_text_from_docx(file_path)
         elif file_ext == "xlsx":
-            wb = openpyxl.load_workbook(file_path, data_only=True)
-            for sheet in wb.worksheets:
-                sheet_data = []
-                for row in sheet.iter_rows(values_only=True):
-                    if any(cell is not None for cell in row):
-                        row_text = " | ".join([str(cell) if cell is not None else "" for cell in row])
-                        sheet_data.append(row_text)
-                
-                if sheet_data:
-                    sheet_text = f"Sheet: {sheet.title}\n" + "\n".join(sheet_data)
-                    if len(sheet_text) > 5000:
-                        for i in range(0, len(sheet_text), 4000):
-                            chunks.append(sheet_text[i:i+4000])
-                    else:
-                        chunks.append(sheet_text)
-
+            chunks = extract_text_from_xlsx(file_path)
         elif file_ext in ["txt", "md"]:
-            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                content = f.read()
-                for i in range(0, len(content), 1500):
-                    chunks.append(content[i:i+1500])
+            chunks = extract_text_from_text(file_path)
 
         if chunks:
             full_text_sample = "\n".join(chunks)

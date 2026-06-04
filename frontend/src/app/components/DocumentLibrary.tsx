@@ -1282,7 +1282,7 @@ export const DocumentLibrary = ({
               <input
                 type="checkbox"
                 checked={showArchived}
-                onChange={(e) => {
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                   setShowArchived(e.target.checked);
                   setSelectedTreeNodeId(null);
                 }}
@@ -1362,7 +1362,7 @@ export const DocumentLibrary = ({
               onCompositionStart={() => {
                 isComposing.current = true;
               }}
-              onCompositionEnd={(e: React.CompositionEvent<HTMLInputElement>) => {
+              onCompositionEnd={(e: any) => {
                 isComposing.current = false;
                 const val = e.currentTarget.value;
                 setSearchQuery(val);

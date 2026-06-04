@@ -9,7 +9,7 @@ import { MetadataEditModal } from "./MetadataEditModal";
 interface DocumentDetailsProps {
   doc: Document;
   onClose: () => void;
-  onDelete: (id: string, e: React.MouseEvent) => void;
+  onDelete: () => void;
   onDownload: (id: string, type: 'original' | 'md') => void;
   onReextractTags: (id: string) => void;
   onOpenReviewModal?: (id: string) => void;
@@ -201,7 +201,7 @@ export const DocumentDetails = ({
       {/* 資料の破棄セクション - 最下部に固定 */}
       <div className="flex-shrink-0 p-8 pt-4 pb-8 border-t border-white/10 bg-black/20 mt-auto">
         <button 
-          onClick={(e: React.MouseEvent) => onDelete(doc.id, e)}
+          onClick={onDelete}
           className="w-full flex items-center justify-center gap-2 p-3 bg-red-600/5 hover:bg-red-600/20 text-red-500 border border-red-500/20 rounded-xl text-xs font-bold transition-all group"
         >
           <Trash2 className="w-4 h-4 group-hover:scale-110 transition-transform" />

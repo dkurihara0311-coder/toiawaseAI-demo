@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import axios from "axios";
+// @ts-ignore
 import { X, CheckCircle, AlertCircle, RefreshCw } from "lucide-react";
 import { Document } from "../types";
 
@@ -60,18 +61,18 @@ export const ReextractReviewModal = ({ doc, isOpen, onClose, onSuccess }: Reextr
       });
       setAttrSelections(initialAttrSelections);
 
-      const oldTags = (doc.tags || "").split(",").map(t => t.trim()).filter(Boolean);
-      const newTags = (proposed.tags || "").split(",").map(t => t.trim()).filter(Boolean);
+      const oldTags = (doc.tags || "").split(",").map((t: string) => t.trim()).filter(Boolean);
+      const newTags = (proposed.tags || "").split(",").map((t: string) => t.trim()).filter(Boolean);
       
-      const added = newTags.filter(t => !oldTags.includes(t));
-      const removed = oldTags.filter(t => !newTags.includes(t));
+      const added = newTags.filter((t: string) => !oldTags.includes(t));
+      const removed = oldTags.filter((t: string) => !newTags.includes(t));
       
       const initialAdded: Record<string, boolean> = {};
-      added.forEach(t => initialAdded[t] = true); 
+      added.forEach((t: string) => initialAdded[t] = true); 
       setAddedTagSelections(initialAdded);
       
       const initialRemoved: Record<string, boolean> = {};
-      removed.forEach(t => initialRemoved[t] = true); 
+      removed.forEach((t: string) => initialRemoved[t] = true); 
       setRemovedTagSelections(initialRemoved);
       
     } catch (e: any) {
@@ -106,18 +107,18 @@ export const ReextractReviewModal = ({ doc, isOpen, onClose, onSuccess }: Reextr
       
       if (proposedData.document_type) finalAttrs["文書種類"] = proposedData.document_type;
       
-      const oldTags = (doc.tags || "").split(",").map(t => t.trim()).filter(Boolean);
-      const newTags = (proposedData.tags || "").split(",").map(t => t.trim()).filter(Boolean);
+      const oldTags = (doc.tags || "").split(",").map((t: string) => t.trim()).filter(Boolean);
+      const newTags = (proposedData.tags || "").split(",").map((t: string) => t.trim()).filter(Boolean);
       
-      const commonTags = oldTags.filter(t => newTags.includes(t));
-      const addedTags = newTags.filter(t => !oldTags.includes(t));
-      const removedTags = oldTags.filter(t => !newTags.includes(t));
+      const commonTags = oldTags.filter((t: string) => newTags.includes(t));
+      const addedTags = newTags.filter((t: string) => !oldTags.includes(t));
+      const removedTags = oldTags.filter((t: string) => !newTags.includes(t));
       
       const finalTagsSet = new Set(commonTags);
-      addedTags.forEach(t => {
+      addedTags.forEach((t: string) => {
         if (addedTagSelections[t]) finalTagsSet.add(t);
       });
-      removedTags.forEach(t => {
+      removedTags.forEach((t: string) => {
         if (removedTagSelections[t]) finalTagsSet.add(t);
       });
       
@@ -271,10 +272,15 @@ export const ReextractReviewModal = ({ doc, isOpen, onClose, onSuccess }: Reextr
                             <input 
                               type="checkbox" 
                               checked={removedTagSelections[tag]}
-                              onChange={(e) => setRemovedTagSelections(prev => ({...prev, [tag]: e.target.checked}))}
+                              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRemovedTagSelections(prev => ({...prev, [tag]: e.target.checked}))}
                             />
-                            <span className={`text-xs ${removedTagSelections[tag] ? 'text-gray-200 font-bold' : 'text-red-400/50 line-through'}`}>
-                              #{tag} {removedTagSelections[tag] ? '(残す)' : '(削除する)'}
+                            <span className={`text-xs flex items-center gap-1.5 ${removedTagSelections[tag] ? 'text-gray-200 font-bold' : 'text-gray-400'}`}>
+                              <span className={removedTagSelections[tag] ? "" : "line-through"}>
+                                #{tag}
+                              </span>
+                              <span>
+                                {removedTagSelections[tag] ? '(残す)' : '(削除する)'}
+                              </span>
                             </span>
                           </label>
                         ))}
@@ -297,10 +303,15 @@ export const ReextractReviewModal = ({ doc, isOpen, onClose, onSuccess }: Reextr
                             <input 
                               type="checkbox" 
                               checked={addedTagSelections[tag]}
-                              onChange={(e) => setAddedTagSelections(prev => ({...prev, [tag]: e.target.checked}))}
+                              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAddedTagSelections(prev => ({...prev, [tag]: e.target.checked}))}
                             />
-                            <span className={`text-xs ${addedTagSelections[tag] ? 'text-emerald-200 font-bold' : 'text-gray-400 line-through'}`}>
-                              #{tag} {addedTagSelections[tag] ? '(追加する)' : '(追加しない)'}
+                            <span className={`text-xs flex items-center gap-1.5 ${addedTagSelections[tag] ? 'text-emerald-200 font-bold' : 'text-gray-400'}`}>
+                              <span className={addedTagSelections[tag] ? "" : "line-through"}>
+                                #{tag}
+                              </span>
+                              <span>
+                                {addedTagSelections[tag] ? '(追加する)' : '(追加しない)'}
+                              </span>
                             </span>
                           </label>
                         ))}

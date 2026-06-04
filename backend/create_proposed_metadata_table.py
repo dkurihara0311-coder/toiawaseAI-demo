@@ -1,11 +1,9 @@
 import sqlalchemy
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 import sys
+from database import engine
 
-# 既存の接続情報
-DB_URL = "postgresql://toiawaseragdb_user:8lc53dI9w2AaNMNnXplizuIyFIdyCiW7@dpg-d80ms2egvqtc73dmgpi0-a.ohio-postgres.render.com/toiawaseragdb"
-
-print(f"Connecting to: {DB_URL}")
+print("Connecting to database and creating proposed_document_metadata table...")
 
 sql = """
 CREATE TABLE IF NOT EXISTS proposed_document_metadata (
@@ -19,12 +17,12 @@ CREATE TABLE IF NOT EXISTS proposed_document_metadata (
 """
 
 try:
-    engine = create_engine(DB_URL)
     with engine.connect() as conn:
         print("Executing schema update...")
         conn.execute(text(sql))
         conn.commit()
-    print("SUCCESS: Remote DB schema updated. Added proposed_document_metadata table.")
+    print("SUCCESS: DB schema updated. Added proposed_document_metadata table.")
 except Exception as e:
     print(f"ERROR: {e}")
     sys.exit(1)
+

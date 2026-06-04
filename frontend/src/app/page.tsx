@@ -12,6 +12,7 @@ import { ChatPanel } from "./components/ChatPanel";
 import { UploadZone } from "./components/UploadZone";
 import { DocumentDetails } from "./components/DocumentDetails";
 import { ReextractReviewModal } from "./components/ReextractReviewModal";
+import { DeleteConfirmModal } from "./components/DeleteConfirmModal";
 
 // Types
 import { Document, Message, SortConfig, ColumnConfig } from "./types";
@@ -46,6 +47,7 @@ export default function Dashboard() {
   const [isHeaderDragging, setIsHeaderDragging] = useState(false);
   const [sortConfigs, setSortConfigs] = useState<SortConfig[]>([]);
   const [reviewModalDocId, setReviewModalDocId] = useState<string | null>(null);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
 
   const DEFAULT_COLUMNS: ColumnConfig[] = [
     { key: "file_name", label: "名称", width: "w-80 flex-shrink-0" },
@@ -248,7 +250,7 @@ export default function Dashboard() {
       const primary = activeConfigs.length > 0 ? activeConfigs[0] : null;
       const params = primary ? { sort_key: primary.key, sort_order: primary.order } : {};
       
-      const res = await withTimeout(
+      const res = await withTimeout<any>(
         axios.get(`${API_URL}/api/documents?t=${Date.now()}`, { params }),
         8000, // 初回などの遅延を考慮し少し短めに設定してリトライを回す
         "サーバーからの応答がタイムアウトしました。"
@@ -322,14 +324,12 @@ export default function Dashboard() {
     } finally { setIsProcessingChat(false); }
   };
 
-  const deleteDoc = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!confirm("削除してもよろしいですか？")) return;
+  const deleteDoc = async (id: string) => {
     try {
       await axios.delete(`${API_URL}/api/documents/${id}`);
       setDocs(prev => prev.filter(d => d.id !== id));
       if (selectedDoc?.id === id) { setSelectedDoc(null); setShowDocPanel(false); }
-    } catch (e) { alert("削除に失敗しました。"); }
+    } catch (e) { window.alert("削除に失敗しました。"); }
   };
 
   const downloadAction = async (id: string, type: 'original' | 'md') => {
@@ -429,7 +429,7 @@ export default function Dashboard() {
         {selectedDoc ? (
           <DocumentDetails 
             doc={selectedDoc} onClose={() => setShowDocPanel(false)}
-            onDelete={deleteDoc} onDownload={downloadAction}
+            onDelete={() => setIsDeleteModalOpen(true)} onDownload={downloadAction}
             onReextractTags={handleReextractTags}
             onOpenReviewModal={(id) => setReviewModalDocId(id)}
             onUpdateSuccess={() => {
@@ -460,6 +460,18 @@ export default function Dashboard() {
         onSuccess={() => {
           fetchDocs();
           fetchTags();
+        }}
+      />
+
+      <DeleteConfirmModal
+        isOpen={isDeleteModalOpen}
+        fileName={selectedDoc?.file_name || ""}
+        onClose={() => setIsDeleteModalOpen(false)}
+        onConfirm={() => {
+          setIsDeleteModalOpen(false);
+          if (selectedDoc) {
+            deleteDoc(selectedDoc.id);
+          }
         }}
       />
     </div>

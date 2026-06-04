@@ -1,22 +1,15 @@
 import os
-from sqlalchemy import create_engine, text
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy import text
 import sys
 
 # プロジェクトのパスをパスに追加してモデルを読み込めるようにする
 sys.path.append(os.path.abspath("j:/Users/Administrator/Documents/toiawaseAI/backend"))
 import models
+from database import engine
 
-# ユーザーから提示された接続文字列（外部接続用ホスト名に調整が必要な場合がある）
-# ひとまず提示されたものをベースにする
-# Renderの外部接続用ホスト名は通常 dpg-xxx.ohio-postgres.render.com のようになる
-DB_URL = "postgresql://toiawaseragdb_user:8lc53dI9w2AaNMNnXplizuIyFIdyCiW7@dpg-d80ms2egvqtc73dmgpi0-a.ohio-postgres.render.com/toiawaseragdb"
-
-print(f"Connecting to: {DB_URL}")
+print("Connecting to database and initializing schema...")
 
 try:
-    engine = create_engine(DB_URL)
-    
     with engine.connect() as conn:
         print("Checking/Enabling pgvector extension...")
         conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
@@ -36,7 +29,8 @@ try:
             session.commit()
             print("Demo user checked.")
 
-    print("SUCCESS: Remote DB initialization completed.")
+    print("SUCCESS: DB initialization completed.")
 
 except Exception as e:
     print(f"ERROR: {e}")
+
